@@ -21,5 +21,5 @@ glslang/setup-masm: .github/workflows/ci.yaml
 thomasbreland/thomasbreland.github.io: .github/workflows/static.yml
 GIT-Package-Master/Github-Rubygems-Package-examples: .github/workflows/ruby-push.yml
 Pro-Developer-team/RubyGems-Packages: .github/workflows/ruby-push.yml
-X-TOOL-S/crispy-winner: .github/workflows/blank.yml,.github/workflows/google.yml
+X-TOOL-S/crispy-winner: .github/workflows/blank.yml
 shaeroston/bookish-invention: .github/workflows/main.yml
