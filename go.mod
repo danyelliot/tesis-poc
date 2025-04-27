@@ -12,8 +12,3 @@ require (
 )
 
 require github.com/google/go-querystring v1.1.0 // indirect
-
-// Añade la directiva replace para forzar una versión diferente de go-crypto
-replace github.com/ProtonMail/go-crypto v0.0.0-20230825050710-9ee0b59f6bdb => github.com/ProtonMail/go-crypto v0.0.0-20230217180103-958b8693f3d6
-
-// go mod tidy regenerará las dependencias indirectas aquí abajo

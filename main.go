@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/google/go-github/v60/github"
+	gh "github.com/google/go-github/v60/github"
 	"github.com/joho/godotenv" // Import godotenv
 	"golang.org/x/oauth2"
 )
@@ -60,7 +60,7 @@ func main() {
 		&oauth2.Token{AccessToken: githubToken},
 	)
 	tc := oauth2.NewClient(ctx, ts)
-	client := github.NewClient(tc)
+	client := gh.NewClient(tc)
 
 	// Verificar autenticación (opcional pero bueno para feedback)
 	user, _, err := client.Users.Get(ctx, "")
@@ -72,10 +72,10 @@ func main() {
 
 	// --- Búsqueda de Repositorios y Workflows ---
 	var allRepoWorkflows []RepoWorkflows // Changed from []string to []RepoWorkflows
-	opts := &github.SearchOptions{
+	opts := &gh.SearchOptions{
 		Sort:        "indexed",
 		Order:       "desc",
-		ListOptions: github.ListOptions{PerPage: 100}, // Máximo permitido por página
+		ListOptions: gh.ListOptions{PerPage: 100}, // Máximo permitido por página
 	}
 
 	processedRepoCount := 0 // Track processed repos separately from search results limit
@@ -98,7 +98,7 @@ func main() {
 		result, resp, err := client.Search.Repositories(ctx, *query, opts)
 		if err != nil {
 			// Manejo específico de Rate Limit
-			if _, ok := err.(*github.RateLimitError); ok {
+			if _, ok := err.(*gh.RateLimitError); ok {
 				log.Println("Advertencia: Límite de tasa de la API de GitHub excedido. Esperando...")
 				// Podrías implementar una espera más sofisticada basada en resp.Rate.Reset
 				time.Sleep(1 * time.Minute)
@@ -139,7 +139,7 @@ func main() {
 			_, dirContent, _, err := client.Repositories.GetContents(ctx, owner, repoShortName, workflowsDir, nil)
 			if err != nil {
 				// Handle common errors gracefully (e.g., repo deleted, dir not found, permissions)
-				if ghErr, ok := err.(*github.ErrorResponse); ok && ghErr.Response.StatusCode == 404 {
+				if ghErr, ok := err.(*gh.ErrorResponse); ok && ghErr.Response.StatusCode == 404 {
 					log.Printf("  Advertencia: Directorio '%s' no encontrado en %s (puede haber sido eliminado o renombrado después de la indexación). Saltando.\n", workflowsDir, repoName)
 				} else {
 					log.Printf("  Error al obtener contenido de '%s' para %s: %v. Saltando.\n", workflowsDir, repoName, err)
