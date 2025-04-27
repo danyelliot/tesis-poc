@@ -1,6 +1,6 @@
-# Analizador de Seguridad de GitHub Actions Workflows
+# PoC Analizador de vulnerabilidades en workflows públicos
 
-Esta herramienta analiza flujos de trabajo de GitHub Actions en busca de vulnerabilidades de seguridad comunes, proporcionando informes detallados para ayudar a mejorar la seguridad de las configuraciones de CI/CD.
+Se analizan workflows de GitHub Actions en busca de vulnerabilidades de seguridad comunes, proporcionando informes detallados para ayudar a mejorar la seguridad de las configuraciones de CI/CD. 
 
 ## 📋 Índice
 
@@ -10,40 +10,36 @@ Esta herramienta analiza flujos de trabajo de GitHub Actions en busca de vulnera
 - [Base de Datos de Vulnerabilidades](#base-de-datos-de-vulnerabilidades)
 - [Instalación](#instalación)
 - [Uso](#uso)
-- [Formatos de Salida](#formatos-de-salida)
 - [Tipos de Vulnerabilidades Detectadas](#tipos-de-vulnerabilidades-detectadas)
 - [Lógica de Detección](#lógica-de-detección)
 - [Estructura del Proyecto](#estructura-del-proyecto)
-- [Limitaciones y Trabajo Futuro](#limitaciones-y-trabajo-futuro)
-- [Contribuciones](#contribuciones)
-- [Licencia](#licencia)
 
 ## Descripción General
 
-El **Analizador de Seguridad de GitHub Actions Workflows** es una herramienta diseñada para analizar estáticamente archivos de flujo de trabajo de GitHub Actions y detectar patrones de código que podrían representar vulnerabilidades de seguridad. La herramienta opera en dos fases:
+Este proyecto **poc-tesis** es una herramienta diseñada para analizar estáticamente archivos de flujo de trabajo de GitHub Actions y detectar patrones de código que podrían representar vulnerabilidades de seguridad. La herramienta opera en dos fases:
 
 1. **Recolección**: Búsqueda y recopilación de archivos de workflows de múltiples repositorios públicos de GitHub
 2. **Análisis**: Examen de cada workflow para identificar patrones de vulnerabilidades comunes basados en reglas predefinidas
 
-Este proyecto surgió de la necesidad de evaluar la seguridad de las configuraciones de CI/CD en GitHub Actions, ya que representan un vector de ataque cada vez más explotado.
+Este proyecto surge de la necesidad de evaluar la seguridad de las configuraciones de CI/CD en GitHub Actions, ya que representan un vector de ataque cada vez más explotado.
 
 ## Características
 
-- **Escalable**: Puede analizar desde un puñado hasta miles de repositorios
-- **Modular**: Arquitectura basada en componentes que facilita añadir nuevos detectores de vulnerabilidades
-- **Múltiples Formatos de Salida**: Genera reportes en Markdown legible por humanos o SARIF para integración con herramientas de análisis estático
+- **Escalable**: Puede analizar desde uno hasta miles de repositorios (exp. 6k)
+- **Modular**: Arquitectura basada en componentes que facilita añadir nuevos detectores de vulnerabilidades (el objetivo es utilizar la BD de GHAS a futuro)
+- **Múltiples Formatos de Salida**: Genera reportes en Markdown o SARIF para integración con herramientas de análisis estático (GHAS soporta SARIF en other tools)
 - **Análisis Contextual**: Cada vulnerabilidad incluye información de severidad, código vulnerable, impacto y recomendaciones de mitigación
 - **Sin Dependencias Externas**: No requiere bases de datos ni servicios adicionales más allá de la API de GitHub
-- **Enfoque en Seguridad Real**: Basado en patrones de vulnerabilidades documentados y exploits conocidos
+- **Enfoque en Seguridad Real**: Basado en patrones de vulnerabilidades documentados y exploits conocidos (Se pueden agregar más patrones de reconocimiento adhoc)
 
 ## Arquitectura y Flujo de Trabajo
 
-La herramienta sigue un flujo de trabajo de dos etapas claramente definidas:
+La herramienta sigue un flujo de trabajo de dos etapas definidas:
 
 ### 1. Fase de Recolección (Collector)
 
 - Consume la API de búsqueda de GitHub para encontrar repositorios públicos con archivos en `.github/workflows/`
-- Utiliza paginación y manejo de límites de tasa para procesar grandes cantidades de resultados
+- Utiliza paginación y manejo de límites de tasa para procesar grandes cantidades de resultados (100 en indexación)
 - Para cada repositorio, lista y almacena las rutas de archivos workflow (YAML)
 - Guarda los resultados en un archivo intermedio con el formato `owner/repo: ruta1,ruta2,...`
 
@@ -113,7 +109,7 @@ chmod +x check_structure.sh
 
 ### Usando el script de ejecución
 
-El proyecto incluye un script `run.sh` que facilita la ejecución de las diferentes fases:
+Se incluye un script `run.sh` que facilita la ejecución de las diferentes fases:
 
 ```bash
 # Hacer el script ejecutable
@@ -159,47 +155,6 @@ Opciones:
 - `-m`: Número máximo de repositorios a analizar
 - `-f`: Formato del reporte (`md` para Markdown, `sarif` para SARIF JSON)
 
-## 📊 Formatos de Salida
-
-### Markdown
-
-El reporte en Markdown incluye:
-
-- **Resumen Ejecutivo**:
-  * Estadísticas totales de vulnerabilidades encontradas
-  * Gráficos de distribución por severidad (Alta, Media, Baja)
-  * Distribución por tipo de vulnerabilidad
-
-- **Análisis Detallado** para cada tipo de vulnerabilidad:
-  * Descripción general y contexto
-  * Severidad e impacto potencial
-  * Ejemplos específicos de vectores de explotación
-  * Recomendaciones detalladas de mitigación
-  * Referencias a documentación y recursos externos
-
-- **Ocurrencias Específicas**:
-  * Lista detallada de cada instancia encontrada
-  * Extracto del código vulnerable
-  * Ubicación exacta (repositorio, archivo, línea)
-
-- **Recomendaciones Generales**:
-  * Mejores prácticas para asegurar workflows
-  * Ejemplos de configuraciones seguras
-  * Referencias a herramientas y recursos adicionales
-
-### SARIF (Static Analysis Results Interchange Format)
-
-El formato SARIF es un estándar JSON para representar resultados de análisis estático:
-
-- **Compatible con GitHub Code Scanning**: Los resultados pueden cargarse directamente en GitHub
-- **Integrable con otras Herramientas**: Puede procesarse por plataformas de CI/CD y sistemas de seguimiento
-- **Estructura Estandarizada**: Incluye reglas, ubicaciones precisas, severidad en formato CVSS y snippets de código
-
-El reporte SARIF generado cumple con el esquema 2.1.0 e incluye:
-- Metadatos de la herramienta
-- Definición detallada de reglas (tipos de vulnerabilidades)
-- Resultados con ubicación precisa
-- Referencias a documentación y recomendaciones
 
 ## 🛡️ Tipos de Vulnerabilidades Detectadas
 
@@ -271,10 +226,52 @@ Cada detector implementa una lógica específica para el tipo de vulnerabilidad 
 
 El proyecto sigue una estructura modular organizada por dominio de funcionalidad:
 
-## 🤝 Contribuciones
-
-Las contribuciones son bienvenidas. Por favor, abre un issue primero para discutir lo que te gustaría cambiar o agregar.
-
-## 📄 Licencia
-
-Este proyecto está licenciado bajo la Licencia MIT - ver el archivo [LICENSE](LICENSE) para más detalles.
+```mermaid
+flowchart TD
+    Start[Iniciar proceso] --> Config[Configuración inicial]
+    Config --> Search[Búsqueda en API de GitHub]
+    Search --> FilterRepos[Filtrar repositorios con workflows]
+    FilterRepos --> ExtractWorkflows[Extraer rutas de workflows]
+    ExtractWorkflows --> SaveList[Guardar lista de repos y workflows]
+    SaveList --> RepositoriesList[(Archivo de repos y workflows)]
+    
+    %% Etapa 2: Análisis de vulnerabilidades
+    RepositoriesList --> LoadRepos[Cargar lista de repositorios]
+    LoadRepos --> ProcessRepos[Procesar repositorios]
+    ProcessRepos --> DownloadContent[Descargar contenido de workflows]
+    DownloadContent --> ParseYAML[Parsear YAML]
+    ParseYAML --> Analyze[Analizar vulnerabilidades]
+    
+    %% Análisis por categoría
+    Analyze --> CommandInjection[Detectar inyección de comandos]
+    Analyze --> UnsafeActions[Detectar uso inseguro de acciones]
+    Analyze --> SecretExposure[Detectar exposición de secretos]
+    Analyze --> ExcessivePermissions[Detectar permisos excesivos]
+    Analyze --> PRTargetVulns[Detectar problemas en pull_request_target]
+    Analyze --> ScriptInjection[Detectar inyecciones en scripts]
+    
+    %% Resultados
+    CommandInjection --> Results[Resultados de vulnerabilidades]
+    UnsafeActions --> Results
+    SecretExposure --> Results
+    ExcessivePermissions --> Results
+    PRTargetVulns --> Results
+    ScriptInjection --> Results
+    
+    %% Generación de reportes
+    Results --> FormatDecision{Formato de salida?}
+    FormatDecision -- Markdown --> GenerateMD[Generar reporte Markdown]
+    FormatDecision -- SARIF --> GenerateSARIF[Generar reporte SARIF]
+    
+    GenerateMD --> MDReport[(Reporte detallado en Markdown)]
+    GenerateSARIF --> SARIFReport[(Reporte en formato SARIF)]
+    
+    %% Estilos
+    classDef process fill:#f9f,stroke:#333,stroke-width:1px;
+    classDef data fill:#bbf,stroke:#333,stroke-width:1px;
+    classDef decision fill:#ff9,stroke:#333,stroke-width:1px;
+    
+    class Start,Config,Search,FilterRepos,ExtractWorkflows,SaveList,LoadRepos,ProcessRepos,DownloadContent,ParseYAML,Analyze,CommandInjection,UnsafeActions,SecretExposure,ExcessivePermissions,PRTargetVulns,ScriptInjection,GenerateMD,GenerateSARIF process;
+    class RepositoriesList,Results,MDReport,SARIFReport data;
+    class FormatDecision decision;
+```
