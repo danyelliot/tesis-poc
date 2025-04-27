@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/google/go-github/v60/github"
+	gh "github.com/google/go-github/v60/github"
 	"github.com/joho/godotenv"
 	"golang.org/x/oauth2"
 	"gopkg.in/yaml.v3"
@@ -67,7 +67,7 @@ func main() {
 	ctx := context.Background()
 	ts := oauth2.StaticTokenSource(&oauth2.Token{AccessToken: githubToken})
 	tc := oauth2.NewClient(ctx, ts)
-	client := github.NewClient(tc)
+	client := gh.NewClient(tc)
 
 	// Leer lista de repositorios y workflows
 	repos, err := readRepoWorkflows(*inputFile)
@@ -174,7 +174,7 @@ func readRepoWorkflows(filename string) ([]RepoInfo, error) {
 }
 
 // Analizar los workflows de un repositorio
-func analyzeWorkflows(ctx context.Context, client *github.Client, repo RepoInfo) ([]Vulnerability, error) {
+func analyzeWorkflows(ctx context.Context, client *gh.Client, repo RepoInfo) ([]Vulnerability, error) {
 	var vulnerabilities []Vulnerability
 
 	for _, workflowPath := range repo.Workflows {
