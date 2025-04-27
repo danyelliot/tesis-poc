@@ -1,0 +1,38 @@
+# Binaries for programs and plugins
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binary, built with `go test -c`
+*.test
+
+# Output of the go coverage tool
+*.out
+
+# Dependency directories (remove the comment below to include it)
+# vendor/
+
+# Go workspace file
+go.work
+
+# Archivos de reporte generados
+workflow_vulnerabilities.txt
+*.sarif
+
+# Archivos temporales
+*.tmp
+
+# Archivos de entorno
+.env
+
+# Archivos de salida del programa
+actions_repos_workflows_go.txt
+
+# Logs
+*.log
+
+# Archivos de sistema operativo
+.DS_Store
+Thumbs.db
