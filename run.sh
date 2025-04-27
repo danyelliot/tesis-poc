@@ -1,15 +1,9 @@
-#!/bin/bash
-
-# Script para facilitar la ejecución de las herramientas
-
-# Colores para mensajes
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[0;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
-# Función para mostrar la ayuda
 show_help() {
   echo -e "${BLUE}Analizador de Seguridad de GitHub Actions Workflows${NC}"
   echo ""
@@ -26,14 +20,12 @@ show_help() {
   echo ""
 }
 
-# Verificar que existe el token de GitHub
 if [ -z "$GITHUB_PAT" ] && [ ! -f .env ]; then
   echo -e "${RED}Error: No se encontró el token de GitHub.${NC}"
   echo "Debe configurar la variable de entorno GITHUB_PAT o crear un archivo .env con GITHUB_PAT=su_token"
   exit 1
 fi
 
-# Procesar comando
 case "$1" in
   collect)
     shift

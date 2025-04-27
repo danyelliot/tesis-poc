@@ -1,6 +1,3 @@
-#!/bin/bash
-
-# Verificar que los directorios y archivos necesarios existen
 for dir in cmd/collector cmd/analyzer pkg/github pkg/models pkg/analyzer pkg/report internal/config internal/utils; do
   if [ ! -d "$dir" ]; then
     echo "Error: El directorio $dir no existe. Ejecute ./setup.sh para crear la estructura de directorios."
@@ -8,7 +5,6 @@ for dir in cmd/collector cmd/analyzer pkg/github pkg/models pkg/analyzer pkg/rep
   fi
 done
 
-# Verificar archivos clave
 files=(
   "cmd/collector/main.go"
   "cmd/analyzer/main.go"
@@ -36,7 +32,6 @@ for file in "${files[@]}"; do
     echo "Error: El archivo $file no existe o está vacío."
     exit 1
   else
-    # Verificar si el archivo tiene contenido
     if [ ! -s "$file" ]; then
       echo "Error: El archivo $file está vacío."
       exit 1

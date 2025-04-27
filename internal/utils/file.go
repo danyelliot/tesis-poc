@@ -6,7 +6,6 @@ import (
 	"os"
 )
 
-// FileExists verifica si un archivo existe
 func FileExists(filename string) bool {
 	info, err := os.Stat(filename)
 	if os.IsNotExist(err) {
@@ -15,7 +14,6 @@ func FileExists(filename string) bool {
 	return !info.IsDir()
 }
 
-// WriteLinesToFile escribe un slice de strings a un archivo
 func WriteLinesToFile(lines []string, filename string) error {
 	file, err := os.Create(filename)
 	if err != nil {
@@ -34,7 +32,6 @@ func WriteLinesToFile(lines []string, filename string) error {
 	return writer.Flush()
 }
 
-// ReadLinesFromFile lee todas las líneas de un archivo
 func ReadLinesFromFile(filename string) ([]string, error) {
 	file, err := os.Open(filename)
 	if err != nil {
