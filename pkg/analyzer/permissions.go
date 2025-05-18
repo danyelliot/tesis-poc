@@ -8,28 +8,23 @@ import (
 	"github.com/cmalvaceda/tesis-poc/pkg/models"
 )
 
-// ExcessivePermissionsDetector detecta permisos excesivos
 type ExcessivePermissionsDetector struct{}
 
-// NewExcessivePermissionsDetector crea un nuevo detector de permisos excesivos
 func NewExcessivePermissionsDetector() *ExcessivePermissionsDetector {
 	return &ExcessivePermissionsDetector{}
 }
 
-// Detect implementa la interfaz Detector
 func (d *ExcessivePermissionsDetector) Detect(filePath string, lines []string, workflowData map[string]interface{}) []models.Vulnerability {
 	var vulnerabilities []models.Vulnerability
 
-	// Buscar permisos excesivos a nivel de workflow
 	if permissions, ok := workflowData["permissions"].(map[string]interface{}); ok {
-		// Caso: Permiso completo de escritura al contenido
 		if writeAll, ok := permissions["contents"].(string); ok && writeAll == "write" {
 			vulnerabilities = append(vulnerabilities, models.Vulnerability{
 				Type:        string(models.ExcessivePermissions),
 				Description: "El workflow tiene permisos de escritura completos sobre el repositorio",
 				Severity:    string(models.SeverityMedium),
 				File:        filePath,
-				Line:        0, // No podemos determinar la línea exacta fácilmente
+				Line:         0,
 				Details:     "permissions: contents: write",
 				Impact: "Los permisos de escritura sobre el contenido del repositorio permiten a las acciones " +
 					"modificar código, crear commits, y potencialmente introducir código malicioso. " +
@@ -50,7 +45,6 @@ func (d *ExcessivePermissionsDetector) Detect(filePath string, lines []string, w
 			})
 		}
 
-		// Caso: Permisos a nivel de admin
 		if adminLevel, ok := permissions["contents"].(string); ok && adminLevel == "admin" {
 			vulnerabilities = append(vulnerabilities, models.Vulnerability{
 				Type:        string(models.ExcessivePermissions),
@@ -76,7 +70,6 @@ func (d *ExcessivePermissionsDetector) Detect(filePath string, lines []string, w
 			})
 		}
 	} else if _, ok := workflowData["permissions"]; !ok {
-		// Si no se especifican permisos, advertir sobre permisos implícitos
 		vulnerabilities = append(vulnerabilities, models.Vulnerability{
 			Type:        string(models.UndefinedPermissions),
 			Description: "Workflow sin permisos explícitamente definidos",
@@ -99,15 +92,12 @@ func (d *ExcessivePermissionsDetector) Detect(filePath string, lines []string, w
 		})
 	}
 
-	// Buscar GITHUB_TOKEN con permisos no especificados en los pasos
 	tokenWithPermissionsPattern := regexp.MustCompile(`token:\s*\$\{\{\s*secrets\.GITHUB_TOKEN\s*\}\}`)
 
 	for i, line := range lines {
 		if tokenWithPermissionsPattern.MatchString(line) {
-			// Verificar si hay un job o step cercano con permisos explícitos
 			hasExplicitPermissions := false
 
-			// Buscar hacia arriba y abajo para permisos
 			for j := max(0, i-10); j < min(len(lines), i+10); j++ {
 				if strings.Contains(lines[j], "permissions:") {
 					hasExplicitPermissions = true
@@ -138,7 +128,6 @@ func (d *ExcessivePermissionsDetector) Detect(filePath string, lines []string, w
 	return vulnerabilities
 }
 
-// min retorna el mínimo entre dos enteros
 func min(a, b int) int {
 	if a < b {
 		return a
@@ -146,7 +135,6 @@ func min(a, b int) int {
 	return b
 }
 
-// max retorna el máximo entre dos enteros
 func max(a, b int) int {
 	if a > b {
 		return a

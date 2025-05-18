@@ -10,28 +10,22 @@ import (
 	"github.com/cmalvaceda/tesis-poc/pkg/models"
 )
 
-// SARIFReporter genera reportes en formato SARIF
 type SARIFReporter struct{}
 
-// NewSARIFReporter crea un nuevo generador de reportes SARIF
 func NewSARIFReporter() *SARIFReporter {
 	return &SARIFReporter{}
 }
 
-// GenerateReport implementa la interfaz Reporter
 func (sr *SARIFReporter) GenerateReport(vulnerabilities []models.Vulnerability, outputFile string) error {
-	// Crear un mapa para almacenar reglas únicas
 	uniqueRuleIds := make(map[string]bool)
 	var rules []SARIFRule
 
-	// Crear las reglas SARIF a partir de las vulnerabilidades
 	for _, vuln := range vulnerabilities {
 		ruleID := strings.ReplaceAll(vuln.Type, " ", "")
 
 		if !uniqueRuleIds[ruleID] {
 			uniqueRuleIds[ruleID] = true
 
-			// Convertir severidad a formato numérico estándar CVSS
 			var securitySeverity string
 			switch vuln.Severity {
 			case string(models.SeverityHigh):
@@ -44,7 +38,6 @@ func (sr *SARIFReporter) GenerateReport(vulnerabilities []models.Vulnerability, 
 				securitySeverity = "1.0"
 			}
 
-			// Crear regla SARIF para este tipo de vulnerabilidad
 			rule := SARIFRule{
 				ID:   ruleID,
 				Name: vuln.Type,
@@ -66,12 +59,10 @@ func (sr *SARIFReporter) GenerateReport(vulnerabilities []models.Vulnerability, 
 		}
 	}
 
-	// Crear resultados SARIF a partir de las vulnerabilidades
 	var results []SARIFResult
 	for _, vuln := range vulnerabilities {
 		ruleID := strings.ReplaceAll(vuln.Type, " ", "")
 
-		// Mapear severidad a nivel SARIF
 		level := "warning"
 		if vuln.Severity == string(models.SeverityHigh) {
 			level = "error"
@@ -79,12 +70,10 @@ func (sr *SARIFReporter) GenerateReport(vulnerabilities []models.Vulnerability, 
 			level = "note"
 		}
 
-		// Crear mensaje específico para esta instancia de vulnerabilidad
 		message := SARIFMessage{
 			Text: fmt.Sprintf("%s - %s", vuln.Description, strings.Split(vuln.Details, "\n")[0]),
 		}
 
-		// Crear resultado SARIF para esta vulnerabilidad
 		result := SARIFResult{
 			RuleID:  ruleID,
 			Level:   level,
@@ -108,11 +97,9 @@ func (sr *SARIFReporter) GenerateReport(vulnerabilities []models.Vulnerability, 
 		results = append(results, result)
 	}
 
-	// Crear tiempos para la invocación
 	startTime := time.Now().Add(-1 * time.Hour).UTC().Format(time.RFC3339)
 	endTime := time.Now().UTC().Format(time.RFC3339)
 
-	// Construir el reporte SARIF completo
 	sarifReport := SARIFReport{
 		Schema:  "https://json.schemastore.org/sarif-2.1.0.json",
 		Version: "2.1.0",
@@ -138,13 +125,11 @@ func (sr *SARIFReporter) GenerateReport(vulnerabilities []models.Vulnerability, 
 		},
 	}
 
-	// Serializar a JSON con formato legible
 	jsonData, err := json.MarshalIndent(sarifReport, "", "  ")
 	if err != nil {
 		return fmt.Errorf("error al crear JSON SARIF: %w", err)
 	}
 
-	// Guardar en archivo
 	err = os.WriteFile(outputFile, jsonData, 0644)
 	if err != nil {
 		return fmt.Errorf("error al guardar archivo SARIF: %w", err)
@@ -153,7 +138,6 @@ func (sr *SARIFReporter) GenerateReport(vulnerabilities []models.Vulnerability, 
 	return nil
 }
 
-// Estructuras SARIF para el formato JSON estándar
 type SARIFReport struct {
 	Schema  string     `json:"$schema"`
 	Version string     `json:"version"`

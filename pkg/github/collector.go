@@ -6,16 +6,14 @@ import (
 	"time"
 
 	"github.com/cmalvaceda/tesis-poc/pkg/models"
-	gh "github.com/google/go-github/v60/github" // Importar con alias
+	gh "github.com/google/go-github/v60/github"
 )
 
-// WorkflowCollector gestiona la recolección de workflows
 type WorkflowCollector struct {
 	client   *Client
 	maxRepos int
 }
 
-// NewWorkflowCollector crea un nuevo colector de workflows
 func NewWorkflowCollector(client *Client, maxRepos int) *WorkflowCollector {
 	return &WorkflowCollector{
 		client:   client,
@@ -23,15 +21,13 @@ func NewWorkflowCollector(client *Client, maxRepos int) *WorkflowCollector {
 	}
 }
 
-// CollectWorkflows busca repositorios y recolecta sus workflows
 func (wc *WorkflowCollector) CollectWorkflows(query string) ([]models.RepoWorkflows, error) {
 	var allRepoWorkflows []models.RepoWorkflows
 	processedRepoCount := 0
 	page := 1
-	perPage := 100 // Máximo permitido por GitHub API
+	perPage := 100
 
 	for processedRepoCount < wc.maxRepos {
-		// Ajustar perPage basado en los repositorios restantes a procesar
 		remaining := wc.maxRepos - processedRepoCount
 		if remaining < perPage {
 			perPage = remaining
@@ -41,11 +37,10 @@ func (wc *WorkflowCollector) CollectWorkflows(query string) ([]models.RepoWorkfl
 		result, resp, err := wc.client.SearchRepositories(query, page, perPage)
 
 		if err != nil {
-			// Corregido: usamos el alias gh para github.RateLimitError
 			if _, ok := err.(*gh.RateLimitError); ok {
 				log.Println("Advertencia: Límite de tasa de la API de GitHub excedido. Esperando...")
 				time.Sleep(1 * time.Minute)
-				continue // Reintentar la misma página
+				continue
 			}
 			return nil, err
 		}
@@ -59,7 +54,6 @@ func (wc *WorkflowCollector) CollectWorkflows(query string) ([]models.RepoWorkfl
 			break
 		}
 
-		// Procesar repositorios encontrados
 		for _, repo := range result.Repositories {
 			if processedRepoCount >= wc.maxRepos {
 				break
@@ -71,7 +65,6 @@ func (wc *WorkflowCollector) CollectWorkflows(query string) ([]models.RepoWorkfl
 
 			log.Printf("Procesando: %s", repoName)
 
-			// Obtener archivos de workflow
 			dirContent, err := wc.client.ListDirectoryContents(owner, repoShortName, WorkflowsDir)
 			if err != nil {
 				log.Printf("  Error al obtener workflows para %s: %v. Saltando.", repoName, err)
@@ -97,7 +90,7 @@ func (wc *WorkflowCollector) CollectWorkflows(query string) ([]models.RepoWorkfl
 				log.Printf("  No se encontraron workflows. Saltando.")
 			}
 
-			time.Sleep(200 * time.Millisecond) // Pausa para evitar límites de tasa
+			time.Sleep(200 * time.Millisecond)
 		}
 
 		if resp.NextPage == 0 {
@@ -106,13 +99,12 @@ func (wc *WorkflowCollector) CollectWorkflows(query string) ([]models.RepoWorkfl
 		}
 
 		page = resp.NextPage
-		time.Sleep(1 * time.Second) // Pausa entre páginas
+		time.Sleep(1 * time.Second)
 	}
 
 	return allRepoWorkflows, nil
 }
 
-// isWorkflowFile verifica si un archivo es un workflow de GitHub Actions
 func isWorkflowFile(filename string) bool {
 	return strings.HasSuffix(filename, ".yml") || strings.HasSuffix(filename, ".yaml")
 }

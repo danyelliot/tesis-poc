@@ -7,22 +7,17 @@ import (
 	"github.com/cmalvaceda/tesis-poc/pkg/models"
 )
 
-// CommandInjectionDetector detecta posibles inyecciones de comandos
 type CommandInjectionDetector struct{}
 
-// NewCommandInjectionDetector crea un nuevo detector de inyección de comandos
 func NewCommandInjectionDetector() *CommandInjectionDetector {
 	return &CommandInjectionDetector{}
 }
 
-// Detect implementa la interfaz Detector
 func (d *CommandInjectionDetector) Detect(filePath string, lines []string, workflowData map[string]interface{}) []models.Vulnerability {
 	var vulnerabilities []models.Vulnerability
 
-	// Patrones revisados para detectar uso inseguro de inputs en comandos
 	unsafeInputPattern := regexp.MustCompile(`run:.*\$\{\{\s*github\.event\.(issue|pull_request|comment|discussion|review|head_ref|inputs|client_payload)\..*\s*\}\}`)
 
-	// Casos particularmente riesgosos: inputs directos y client_payload
 	highRiskPattern := regexp.MustCompile(`run:.*\$\{\{\s*github\.event\.(inputs|client_payload)\..*\s*\}\}`)
 
 	for i, line := range lines {
@@ -30,12 +25,10 @@ func (d *CommandInjectionDetector) Detect(filePath string, lines []string, workf
 			vulnDetails := line
 			severity := string(models.SeverityMedium)
 
-			// Evaluar si es un caso de alto riesgo
 			if highRiskPattern.MatchString(line) {
 				severity = string(models.SeverityHigh)
 			}
 
-			// Evitar falsos positivos cuando hay verificación de inputs o están escapados
 			if strings.Contains(line, "||") || strings.Contains(line, "&&") ||
 				strings.Contains(line, "\"${{") || strings.Contains(line, "'${{") {
 				continue

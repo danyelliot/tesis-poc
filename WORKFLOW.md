@@ -127,15 +127,206 @@ Dependiendo del formato elegido, la herramienta genera uno de estos tipos de rep
   * Severidad en formato CVSS
   * Mensaje y snippet de código vulnerable
 
-## Ventajas de este Enfoque
+## 4. Flujo de Trabajo de Automatización GHAS
 
-1. **Escalabilidad**: El proceso en dos etapas permite analizar grandes cantidades de repositorios
-2. **Compatibilidad**: Los formatos de salida son estándar en la industria
-3. **Contexto Completo**: Cada vulnerabilidad incluye contexto, impacto y recomendaciones
-4. **Integración**: Los reportes SARIF pueden integrarse con sistemas de CI/CD existentes
+Este flujo complementa el análisis de vulnerabilidades, proporcionando una forma automatizada de aplicar GitHub Advanced Security a repositorios públicos.
 
-## Limitaciones
+```mermaid
+flowchart TD
+    Start[Iniciar proceso] --> ConfigGHAS[Configuración inicial]
+    ConfigGHAS --> RepoDecision{¿Repo específico?}
+    
+    RepoDecision -- Sí --> ProcessSpecific[Procesar repo específico]
+    RepoDecision -- No --> SearchRepos[Buscar repos con workflows]
+    
+    SearchRepos --> FilterRepos[Filtrar repos válidos]
+    FilterRepos --> SaveRepoList[Guardar lista de repos]
+    ProcessSpecific --> SaveRepoList
+    
+    SaveRepoList --> CollectOnly{¿Solo recolección?}
+    CollectOnly -- Sí --> End[Finalizar proceso]
+    CollectOnly -- No --> ProcessRepos[Procesar repositorios]
+    
+    ProcessRepos --> Fork[Crear fork del repo]
+    Fork --> Clone[Clonar fork localmente]
+    Clone --> BranchCheck{¿Existe rama GHAS?}
+    
+    BranchCheck -- Sí --> ForceCheck{¿Forzar actualización?}
+    BranchCheck -- No --> CreateBranch[Crear rama GHAS-analysis]
+    
+    ForceCheck -- Sí --> DeleteBranch[Eliminar rama existente]
+    DeleteBranch --> CreateBranch
+    ForceCheck -- No --> CheckoutBranch[Usar rama existente]
+    
+    CreateBranch --> DetectLanguages[Detectar lenguajes del repo]
+    CheckoutBranch --> DetectLanguages
+    
+    DetectLanguages --> CreateDirs[Crear directorios para configs]
+    CreateDirs --> AddCodeQL[Configurar CodeQL]
+    AddCodeQL --> AddDependabot[Configurar Dependabot]
+    
+    AddDependabot --> GitLeaksCheck{¿GitLeaks habilitado?}
+    GitLeaksCheck -- Sí --> AddGitLeaks[Configurar GitLeaks]
+    GitLeaksCheck -- No --> ContainerCheck
+    AddGitLeaks --> ContainerCheck
+    
+    ContainerCheck{¿Scan contenedores habilitado?}
+    ContainerCheck -- Sí --> AddContainerScan[Configurar Trivy]
+    ContainerCheck -- No --> Commit
+    AddContainerScan --> Commit
+    
+    Commit[Crear commit con cambios]
+    Commit --> Push[Enviar cambios a GitHub]
+    Push --> CleanupCheck{¿Limpiar fork?}
+    
+    CleanupCheck -- Sí --> DeleteFork[Eliminar fork]
+    CleanupCheck -- No --> NextRepo
+    DeleteFork --> NextRepo
+    
+    NextRepo{¿Más repos?}
+    NextRepo -- Sí --> ProcessRepos
+    NextRepo -- No --> End
+    
+    %% Estilos
+    classDef process fill:#f9f,stroke:#333,stroke-width:1px;
+    classDef data fill:#bbf,stroke:#333,stroke-width:1px;
+    classDef decision fill:#ff9,stroke:#333,stroke-width:1px;
+    
+    class Start,ConfigGHAS,ProcessSpecific,SearchRepos,FilterRepos,SaveRepoList,ProcessRepos,Fork,Clone,CreateBranch,CheckoutBranch,DeleteBranch,DetectLanguages,CreateDirs,AddCodeQL,AddDependabot,AddGitLeaks,AddContainerScan,Commit,Push,DeleteFork,End process;
+    class RepoDecision,CollectOnly,BranchCheck,ForceCheck,GitLeaksCheck,ContainerCheck,CleanupCheck,NextRepo decision;
+```
 
-1. Análisis estático sin ejecución real de los workflows
-2. Dependencia de patrones predefinidos para la detección
-3. Posibles falsos positivos que requieren validación manual
+### Entrada y Salida
+
+**Entrada**: 
+- Token de acceso personal de GitHub
+- Repositorio específico o parámetros de búsqueda
+- Opciones de configuración (habilitar/deshabilitar escaneos específicos)
+
+**Salida**:
+- Repositorios fork con herramientas de seguridad configuradas
+- Análisis automático de seguridad en ejecución
+
+### Pasos Detallados:
+
+#### Fase 1: Recolección de Repositorios
+
+1. **Configuración Inicial**:
+   - Cargar token de GitHub y validar permisos
+   - Procesar opciones de línea de comandos
+   - Crear directorio temporal para clonaciones
+
+2. **Selección de Repositorios**:
+   - **Modo Específico**: Si se proporciona un repositorio específico, verificar su existencia y workflows
+   - **Modo Búsqueda**: Buscar repositorios que contengan archivos en `.github/workflows/`
+   - Almacenar información de repositorios válidos
+
+#### Fase 2: Aplicación de GHAS
+
+Para cada repositorio identificado:
+
+1. **Preparación del Repositorio**:
+   - Crear un fork en la cuenta del usuario autenticado
+   - Clonar el fork en el directorio temporal
+   - Configurar autenticación Git para operaciones posteriores
+
+2. **Gestión de Ramas**:
+   - Verificar si existe la rama `ghas-analysis`
+   - Si existe y no se usa `--force`, utilizar la rama existente
+   - Si existe y se usa `--force`, eliminar la rama y crear una nueva
+   - Si no existe, crear una nueva rama
+
+3. **Detección de Lenguajes**:
+   - Realizar un análisis de los archivos del repositorio
+   - Clasificar archivos por extensión y mapearlos a lenguajes soportados
+   - Identificar lenguajes predominantes y relevantes
+   - Determinar el ecosistema de paquetes correspondiente
+
+4. **Configuración de Herramientas GHAS**:
+   - **CodeQL**: Crear workflow adaptado a los lenguajes detectados
+   - **Dependabot**: Configurar para el ecosistema de paquetes identificado
+   - **GitLeaks** (opcional): Configurar análisis de secretos
+   - **Trivy** (opcional): Configurar análisis de contenedores
+
+5. **Aplicación de Cambios**:
+   - Agregar todos los archivos modificados
+   - Crear commit con un mensaje descriptivo
+   - Configurar URL remota con autenticación incorporada
+   - Enviar cambios al fork (force-push si es necesario)
+
+6. **Finalización**:
+   - Opcional: eliminar fork si se solicitó limpieza
+   - Mostrar URL para acceder a los resultados del análisis
+
+### Componentes Principales
+
+#### 1. Cliente GitHub (`github/client.go`)
+Responsable de interactuar con la API de GitHub para:
+- Autenticar al usuario
+- Buscar repositorios
+- Crear y gestionar forks
+- Listar contenido de repositorios
+
+#### 2. Detector de Lenguajes (`detectRepositoryLanguages()`)
+Analiza el repositorio para identificar:
+- Lenguajes de programación utilizados
+- Lenguaje predominante
+- Lenguajes secundarios relevantes
+- Ecosistema de paquetes correspondiente
+
+#### 3. Procesador de Plantillas (`addWorkflowFromTemplate()`)
+Aplica plantillas predefinidas para:
+- Workflow de CodeQL
+- Configuración de Dependabot
+- Workflow de GitLeaks
+- Workflow de análisis de contenedores
+
+#### 4. Gestor de Git (`runGitCommand()`)
+Ejecuta operaciones Git como:
+- Clonar repositorios
+- Crear y cambiar entre ramas
+- Agregar cambios y crear commits
+- Enviar cambios a GitHub
+
+### Consideraciones Técnicas
+
+1. **Autenticación**:
+   - Se utiliza un token personal de acceso para autenticar todas las operaciones
+   - Se incorpora el token en las URLs de Git para operaciones autenticadas
+
+2. **Detección de Lenguajes**:
+   - Algoritmo de análisis basado en extensiones de archivos
+   - Ponderación por frecuencia para determinar relevancia
+   - Soporte para configuraciones multi-lenguaje en CodeQL
+
+3. **Manejo de Errores**:
+   - Detección y gestión de fallos en operaciones de API
+   - Recuperación en caso de errores no críticos
+   - Registro detallado para diagnóstico
+
+4. **Limitación de Tasa**:
+   - Esperas entre operaciones para evitar límites de la API de GitHub
+   - Procesamiento secuencial para optimizar uso de recursos
+
+### Extensibilidad
+
+El diseño modular permite extender la funcionalidad:
+
+1. **Nuevas Herramientas**: Agregar nuevas plantillas y lógica de configuración
+2. **Lenguajes Adicionales**: Expandir la detección de lenguajes y mapeos de ecosistemas
+3. **Opciones de Configuración**: Incorporar parámetros adicionales para personalización
+4. **Integración con CI/CD**: Adaptar para ejecutar como parte de pipelines existentes
+
+### Limitaciones Actuales
+
+1. No realiza análisis de cobertura de código
+2. No configura Code Owners ni políticas de seguridad
+3. No administra permisos específicos de repositorio
+4. No integra resultados del análisis en sistemas externos
+
+### Próximas Mejoras
+
+1. Integración con GitHub Enterprise Server
+2. Soporte para políticas de seguridad personalizadas
+3. Generación de reportes consolidados de vulnerabilidades
+4. Opciones avanzadas de configuración de CodeQL

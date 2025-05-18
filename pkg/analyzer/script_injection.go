@@ -6,43 +6,35 @@ import (
 	"github.com/cmalvaceda/tesis-poc/pkg/models"
 )
 
-// ScriptInjectionDetector detecta posibles inyecciones en scripts
 type ScriptInjectionDetector struct{}
 
-// NewScriptInjectionDetector crea un nuevo detector de inyección en scripts
 func NewScriptInjectionDetector() *ScriptInjectionDetector {
 	return &ScriptInjectionDetector{}
 }
 
-// Detect implementa la interfaz Detector
 func (d *ScriptInjectionDetector) Detect(filePath string, lines []string, workflowData map[string]interface{}) []models.Vulnerability {
 	var vulnerabilities []models.Vulnerability
 
-	// Buscar uso peligroso de inputs en scripts multilinea
 	inScript := false
 	scriptContent := ""
 
 	for i, line := range lines {
 		trimmedLine := strings.TrimSpace(line)
 
-		// Detectar inicio de bloque de script multilinea
 		if strings.HasPrefix(trimmedLine, "run: |") || strings.HasPrefix(trimmedLine, "run:|") {
 			inScript = true
 			scriptContent = ""
 			continue
 		}
 
-		// Recolectar contenido del script mientras estamos en uno
 		if inScript {
 			if !strings.HasPrefix(trimmedLine, "-") && !strings.HasPrefix(trimmedLine, "run:") &&
 				len(trimmedLine) > 0 && trimmedLine[0] != '#' {
 				scriptContent += line + "\n"
 
-				// Buscar inputs no sanitizados en script
 				if strings.Contains(line, "${{") && strings.Contains(line, "github.event") &&
 					!strings.Contains(line, "\"${{") && !strings.Contains(line, "'${{") {
 
-					// Excluir patrones seguros comunes
 					if !strings.Contains(line, "github.event.repository") &&
 						!strings.Contains(line, "github.event.number") {
 
@@ -72,7 +64,6 @@ func (d *ScriptInjectionDetector) Detect(filePath string, lines []string, workfl
 					}
 				}
 			} else if !strings.HasPrefix(trimmedLine, " ") && len(strings.TrimSpace(line)) > 0 {
-				// Fin del bloque de script
 				inScript = false
 			}
 		}

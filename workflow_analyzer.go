@@ -20,19 +20,21 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// Estructura ampliada para almacenar información detallada de vulnerabilidades
 type Vulnerability struct {
-	Type        string
-	Description string
-	Severity    string
-	File        string
-	Line        int
-	Details     string
-	Impact      string
-	Exploit     string
-	Mitigation  string
-	References  []string
+	Type        string   // Tipo de vulnerabilidad
+	Description string   // Descripción breve
+	Severity    string   // Alta, Media, Baja
+	File        string   // Ruta del archivo
+	Line        int      // Número de línea
+	Details     string   // Detalles específicos (código vulnerable)
+	Impact      string   // Descripción del impacto potencial
+	Exploit     string   // Descripción de cómo podría explotarse
+	Mitigation  string   // Recomendaciones de mitigación
+	References  []string // Enlaces a documentación, CVEs, etc.
 }
 
+// Estructura para almacenar información de un repositorio
 type RepoInfo struct {
 	Owner           string
 	Name            string
@@ -42,27 +44,32 @@ type RepoInfo struct {
 }
 
 func main() {
+	// Cargar variables de entorno
 	err := godotenv.Load()
 	if err != nil {
 		log.Printf("Advertencia: No se pudo cargar el archivo .env: %v", err)
 	}
 
+	// Argumentos de línea de comandos
 	inputFile := flag.String("i", "actions_repos_workflows_go.txt", "Archivo con la lista de repositorios y workflows")
 	outputFile := flag.String("o", "workflow_vulnerabilities.txt", "Archivo para guardar el reporte de vulnerabilidades")
 	maxRepos := flag.Int("m", 50, "Número máximo de repositorios a analizar")
 	format := flag.String("f", "md", "Formato del reporte: md (markdown), sarif (JSON estándar)")
 	flag.Parse()
 
+	// Token de GitHub
 	githubToken := os.Getenv("GITHUB_PAT")
 	if githubToken == "" {
 		log.Fatal("Error: Token de GitHub (GITHUB_PAT) no encontrado")
 	}
 
+	// Cliente de GitHub
 	ctx := context.Background()
 	ts := oauth2.StaticTokenSource(&oauth2.Token{AccessToken: githubToken})
 	tc := oauth2.NewClient(ctx, ts)
 	client := gh.NewClient(tc)
 
+	// Leer lista de repositorios y workflows
 	repos, err := readRepoWorkflows(*inputFile)
 	if err != nil {
 		log.Fatalf("Error al leer archivo de entrada: %v", err)
@@ -72,6 +79,7 @@ func main() {
 	count := 0
 	var allVulnerabilities []Vulnerability
 
+	// Analizar cada repositorio (hasta el límite máximo)
 	for _, repo := range repos {
 		if count >= *maxRepos {
 			log.Printf("Alcanzado el límite de %d repositorios", *maxRepos)
@@ -80,6 +88,7 @@ func main() {
 
 		log.Printf("Analizando repositorio %s (%d/%d)", repo.FullName, count+1, *maxRepos)
 
+		// Analizar cada workflow del repositorio
 		repoVulnerabilities, err := analyzeWorkflows(ctx, client, repo)
 		if err != nil {
 			log.Printf("Error al analizar workflows para %s: %v", repo.FullName, err)
@@ -94,9 +103,10 @@ func main() {
 		}
 
 		count++
-		time.Sleep(500 * time.Millisecond)
+		time.Sleep(500 * time.Millisecond) // Pequeña pausa para evitar límites de tasa
 	}
 
+	// Guardar resultados en el formato especificado
 	if *format == "sarif" {
 		err = saveVulnerabilitiesAsSARIF(allVulnerabilities, *outputFile)
 		if err != nil {
@@ -105,6 +115,7 @@ func main() {
 		log.Printf("\nAnálisis completado. Total de vulnerabilidades encontradas: %d", len(allVulnerabilities))
 		log.Printf("Reporte SARIF guardado en '%s'", *outputFile)
 	} else {
+		// Formato por defecto: Markdown
 		err = saveDetailedVulnerabilityReport(allVulnerabilities, *outputFile)
 		if err != nil {
 			log.Fatalf("Error al guardar reporte: %v", err)
@@ -114,6 +125,7 @@ func main() {
 	}
 }
 
+// Leer el archivo con la lista de repositorios y sus workflows
 func readRepoWorkflows(filename string) ([]RepoInfo, error) {
 	file, err := os.Open(filename)
 	if err != nil {
@@ -139,6 +151,7 @@ func readRepoWorkflows(filename string) ([]RepoInfo, error) {
 		fullName := parts[0]
 		workflows := strings.Split(parts[1], ",")
 
+		// Extraer owner y nombre del repositorio
 		nameParts := strings.SplitN(fullName, "/", 2)
 		if len(nameParts) != 2 {
 			log.Printf("Advertencia: Nombre de repositorio incorrecto: %s", fullName)
@@ -160,10 +173,12 @@ func readRepoWorkflows(filename string) ([]RepoInfo, error) {
 	return repos, nil
 }
 
+// Analizar los workflows de un repositorio
 func analyzeWorkflows(ctx context.Context, client *gh.Client, repo RepoInfo) ([]Vulnerability, error) {
 	var vulnerabilities []Vulnerability
 
 	for _, workflowPath := range repo.Workflows {
+		// Obtener contenido del archivo de workflow
 		content, _, _, err := client.Repositories.GetContents(
 			ctx,
 			repo.Owner,
@@ -177,12 +192,14 @@ func analyzeWorkflows(ctx context.Context, client *gh.Client, repo RepoInfo) ([]
 			continue
 		}
 
+		// Decodificar contenido
 		decodedContent, err := base64.StdEncoding.DecodeString(*content.Content)
 		if err != nil {
 			log.Printf("  Error al decodificar contenido de %s: %v", workflowPath, err)
 			continue
 		}
 
+		// Parsear YAML
 		var workflowData map[string]interface{}
 		err = yaml.Unmarshal(decodedContent, &workflowData)
 		if err != nil {
@@ -190,6 +207,7 @@ func analyzeWorkflows(ctx context.Context, client *gh.Client, repo RepoInfo) ([]
 			continue
 		}
 
+		// Analizar vulnerabilidades en el workflow
 		fileVulns := detectVulnerabilities(workflowPath, string(decodedContent), workflowData)
 		vulnerabilities = append(vulnerabilities, fileVulns...)
 	}
@@ -197,37 +215,48 @@ func analyzeWorkflows(ctx context.Context, client *gh.Client, repo RepoInfo) ([]
 	return vulnerabilities, nil
 }
 
+// Detectar vulnerabilidades en un workflow con información más detallada
 func detectVulnerabilities(filePath, content string, workflowData map[string]interface{}) []Vulnerability {
 	var vulnerabilities []Vulnerability
 
+	// Dividir el contenido en líneas para referencia
 	lines := strings.Split(content, "\n")
 
+	// 1. Buscar inyección de comandos en acciones run
 	cmdInjectionVulns := detectCommandInjection(filePath, lines, workflowData)
 	vulnerabilities = append(vulnerabilities, cmdInjectionVulns...)
 
+	// 2. Verificar uso inseguro de acciones de terceros
 	actionVulns := detectUnsafeActions(filePath, lines, workflowData)
 	vulnerabilities = append(vulnerabilities, actionVulns...)
 
+	// 3. Buscar exposición de secretos
 	secretVulns := detectExposedSecrets(filePath, lines, workflowData)
 	vulnerabilities = append(vulnerabilities, secretVulns...)
 
+	// 4. Verificar permisos excesivos
 	permissionVulns := detectExcessivePermissions(filePath, lines, workflowData)
 	vulnerabilities = append(vulnerabilities, permissionVulns...)
 
+	// 5. Verificar pull_request_target sin restricciones
 	prTargetVulns := detectPullRequestTargetVulns(filePath, lines, workflowData)
 	vulnerabilities = append(vulnerabilities, prTargetVulns...)
 
+	// 6. Detectar scripts inyectables
 	scriptInjectionVulns := detectScriptInjection(filePath, lines, workflowData)
 	vulnerabilities = append(vulnerabilities, scriptInjectionVulns...)
 
 	return vulnerabilities
 }
 
+// Detectar posible inyección de comandos con información detallada
 func detectCommandInjection(filePath string, lines []string, workflowData map[string]interface{}) []Vulnerability {
 	var vulnerabilities []Vulnerability
 
+	// Patrones revisados para detectar uso inseguro de inputs en comandos
 	unsafeInputPattern := regexp.MustCompile(`run:.*\$\{\{\s*github\.event\.(issue|pull_request|comment|discussion|review|head_ref|inputs|client_payload)\..*\s*\}\}`)
 
+	// Casos particularmente riesgosos: inputs directos y client_payload
 	highRiskPattern := regexp.MustCompile(`run:.*\$\{\{\s*github\.event\.(inputs|client_payload)\..*\s*\}\}`)
 
 	for i, line := range lines {
@@ -235,10 +264,12 @@ func detectCommandInjection(filePath string, lines []string, workflowData map[st
 			vulnDetails := line
 			severity := "Media"
 
+			// Evaluar si es un caso de alto riesgo
 			if highRiskPattern.MatchString(line) {
 				severity = "Alta"
 			}
 
+			// Evitar falsos positivos cuando hay verificación de inputs o están escapados
 			if strings.Contains(line, "||") || strings.Contains(line, "&&") ||
 				strings.Contains(line, "\"${{") || strings.Contains(line, "'${{") {
 				continue
@@ -277,21 +308,26 @@ func detectCommandInjection(filePath string, lines []string, workflowData map[st
 	return vulnerabilities
 }
 
+// Detectar uso de acciones de terceros inseguras con información detallada
 func detectUnsafeActions(filePath string, lines []string, workflowData map[string]interface{}) []Vulnerability {
 	var vulnerabilities []Vulnerability
 
+	// Patrones para detectar usos inseguros de acciones
 	actionWithoutVersionPattern := regexp.MustCompile(`uses:\s+[^@]+$`)
 	actionWithBranchPattern := regexp.MustCompile(`uses:\s+[^@]+@\s*(main|master|develop|dev)`)
 
+	// Patrón para verificar si se usa un SHA completo (40 caracteres hex)
 	fullSHAPattern := regexp.MustCompile(`uses:\s+[^@]+@[0-9a-f]{40}`)
 
 	for i, line := range lines {
 		trimmedLine := strings.TrimSpace(line)
 		if strings.HasPrefix(trimmedLine, "uses:") {
+			// Verificar si ya usa un SHA completo (práctica segura)
 			if fullSHAPattern.MatchString(trimmedLine) {
-				continue
+				continue // Esta referencia es segura, usa un SHA completo
 			}
 
+			// Caso 1: Acción sin versión específica
 			if actionWithoutVersionPattern.MatchString(trimmedLine) {
 				vulnerabilities = append(vulnerabilities, Vulnerability{
 					Type:        "Unsafe Action Reference",
@@ -319,6 +355,7 @@ func detectUnsafeActions(filePath string, lines []string, workflowData map[strin
 				})
 			}
 
+			// Caso 2: Acción referenciando una rama (no un tag o commit)
 			if actionWithBranchPattern.MatchString(trimmedLine) {
 				vulnerabilities = append(vulnerabilities, Vulnerability{
 					Type:        "Unsafe Action Reference",
@@ -350,13 +387,17 @@ func detectUnsafeActions(filePath string, lines []string, workflowData map[strin
 	return vulnerabilities
 }
 
+// Detectar posible exposición de secretos con información detallada
 func detectExposedSecrets(filePath string, lines []string, workflowData map[string]interface{}) []Vulnerability {
 	var vulnerabilities []Vulnerability
 
+	// Patrones para detectar exposición potencial de secretos
 	debugSecretPattern := regexp.MustCompile(`(?i)(echo|print|console\.log|printf|cat).*\$\{\{\s*secrets\.`)
 	envSecretPattern := regexp.MustCompile(`env:.*\$\{\{\s*secrets\..*\s*\}\}`)
 
+	// Buscar uso de secrets en logs o debug
 	for i, line := range lines {
+		// Caso 1: Secretos potencialmente expuestos en comandos de depuración
 		if debugSecretPattern.MatchString(line) {
 			vulnerabilities = append(vulnerabilities, Vulnerability{
 				Type:        "Secret Exposure",
@@ -384,6 +425,7 @@ func detectExposedSecrets(filePath string, lines []string, workflowData map[stri
 			})
 		}
 
+		// Caso 2: Secretos exportados como variables de entorno sin máscara
 		if envSecretPattern.MatchString(line) && !strings.Contains(line, "mask: true") {
 			vulnerabilities = append(vulnerabilities, Vulnerability{
 				Type:        "Secret Exposure",
@@ -413,17 +455,20 @@ func detectExposedSecrets(filePath string, lines []string, workflowData map[stri
 	return vulnerabilities
 }
 
+// Detectar permisos excesivos con información detallada
 func detectExcessivePermissions(filePath string, lines []string, workflowData map[string]interface{}) []Vulnerability {
 	var vulnerabilities []Vulnerability
 
+	// Buscar permisos excesivos a nivel de workflow
 	if permissions, ok := workflowData["permissions"].(map[string]interface{}); ok {
+		// Caso: Permiso completo de escritura al contenido
 		if writeAll, ok := permissions["contents"].(string); ok && writeAll == "write" {
 			vulnerabilities = append(vulnerabilities, Vulnerability{
 				Type:        "Excessive Permissions",
 				Description: "El workflow tiene permisos de escritura completos sobre el repositorio",
 				Severity:    "Media",
 				File:        filePath,
-				Line:        0,
+				Line:        0, // No podemos determinar la línea exacta fácilmente
 				Details:     "permissions: contents: write",
 				Impact: "Los permisos de escritura sobre el contenido del repositorio permiten a las acciones " +
 					"modificar código, crear commits, y potencialmente introducir código malicioso. " +
@@ -444,6 +489,7 @@ func detectExcessivePermissions(filePath string, lines []string, workflowData ma
 			})
 		}
 
+		// Caso: Permisos a nivel de admin
 		if adminLevel, ok := permissions["contents"].(string); ok && adminLevel == "admin" {
 			vulnerabilities = append(vulnerabilities, Vulnerability{
 				Type:        "Excessive Permissions",
@@ -469,6 +515,7 @@ func detectExcessivePermissions(filePath string, lines []string, workflowData ma
 			})
 		}
 	} else if _, ok := workflowData["permissions"]; !ok {
+		// Si no se especifican permisos, advertir sobre permisos implícitos
 		vulnerabilities = append(vulnerabilities, Vulnerability{
 			Type:        "Undefined Permissions",
 			Description: "Workflow sin permisos explícitamente definidos",
@@ -491,12 +538,15 @@ func detectExcessivePermissions(filePath string, lines []string, workflowData ma
 		})
 	}
 
+	// Buscar GITHUB_TOKEN con permisos no especificados en los pasos
 	tokenWithPermissionsPattern := regexp.MustCompile(`token:\s*\$\{\{\s*secrets\.GITHUB_TOKEN\s*\}\}`)
 
 	for i, line := range lines {
 		if tokenWithPermissionsPattern.MatchString(line) {
+			// Verificar si hay un job o step cercano con permisos explícitos
 			hasExplicitPermissions := false
 
+			// Buscar hacia arriba y abajo para permisos
 			for j := max(0, i-10); j < min(len(lines), i+10); j++ {
 				if strings.Contains(lines[j], "permissions:") {
 					hasExplicitPermissions = true
@@ -527,16 +577,21 @@ func detectExcessivePermissions(filePath string, lines []string, workflowData ma
 	return vulnerabilities
 }
 
+// Detectar vulnerabilidades relacionadas con pull_request_target con información detallada
 func detectPullRequestTargetVulns(filePath string, lines []string, workflowData map[string]interface{}) []Vulnerability {
 	var vulnerabilities []Vulnerability
 
+	// Verificar si el workflow se activa con pull_request_target
 	hasPullRequestTarget := false
 
+	// Buscar diferentes formas de definir pull_request_target
 	if on, ok := workflowData["on"].(interface{}); ok {
+		// Caso 1: on: pull_request_target
 		if prTarget, ok := on.(string); ok && prTarget == "pull_request_target" {
 			hasPullRequestTarget = true
 		}
 
+		// Caso 2: on: ["push", "pull_request_target", ...]
 		if events, ok := on.([]interface{}); ok {
 			for _, event := range events {
 				if eventStr, ok := event.(string); ok && eventStr == "pull_request_target" {
@@ -546,6 +601,7 @@ func detectPullRequestTargetVulns(filePath string, lines []string, workflowData 
 			}
 		}
 
+		// Caso 3: on: { pull_request_target: {...} }
 		if events, ok := on.(map[string]interface{}); ok {
 			if _, ok := events["pull_request_target"]; ok {
 				hasPullRequestTarget = true
@@ -554,10 +610,12 @@ func detectPullRequestTargetVulns(filePath string, lines []string, workflowData 
 	}
 
 	if hasPullRequestTarget {
+		// Buscar patrones peligrosos en workflows con pull_request_target
 		hasCheckout := false
 		checkoutWithRef := false
 		hasScriptExecution := false
 
+		// Buscar acciones de checkout y ver si usan refs específicas
 		checkoutPattern := regexp.MustCompile(`uses:\s+actions/checkout@`)
 		refSafePattern := regexp.MustCompile(`ref:\s*\$\{\{\s*github\.event\.pull_request\.base\.sha\s*\}\}`)
 		refUnsafePattern := regexp.MustCompile(`ref:\s*\$\{\{\s*github\.event\.pull_request\.head\.`)
@@ -567,12 +625,14 @@ func detectPullRequestTargetVulns(filePath string, lines []string, workflowData 
 			if checkoutPattern.MatchString(line) {
 				hasCheckout = true
 
+				// Buscar en las líneas cercanas si hay una referencia
 				for j := max(0, i-5); j < min(len(lines), i+5); j++ {
 					if refSafePattern.MatchString(lines[j]) {
-						checkoutWithRef = true
+						checkoutWithRef = true // Referencia segura encontrada
 						break
 					}
 					if refUnsafePattern.MatchString(lines[j]) {
+						// Encontró una referencia específica pero insegura
 						hasCheckout = true
 						checkoutWithRef = false
 
@@ -603,11 +663,13 @@ func detectPullRequestTargetVulns(filePath string, lines []string, workflowData 
 				}
 			}
 
+			// Buscar ejecución de scripts en el workflow
 			if scriptRunPattern.MatchString(line) {
 				hasScriptExecution = true
 			}
 		}
 
+		// Si tiene checkout sin referencia segura y ejecuta scripts
 		if hasCheckout && !checkoutWithRef && hasScriptExecution {
 			vulnerabilities = append(vulnerabilities, Vulnerability{
 				Type:        "Unsafe pull_request_target",
@@ -639,29 +701,35 @@ func detectPullRequestTargetVulns(filePath string, lines []string, workflowData 
 	return vulnerabilities
 }
 
+// Detectar potenciales inyecciones en scripts
 func detectScriptInjection(filePath string, lines []string, workflowData map[string]interface{}) []Vulnerability {
 	var vulnerabilities []Vulnerability
 
+	// Buscar uso peligroso de inputs en scripts multilinea
 	inScript := false
 	scriptContent := ""
 
 	for i, line := range lines {
 		trimmedLine := strings.TrimSpace(line)
 
+		// Detectar inicio de bloque de script multilinea
 		if strings.HasPrefix(trimmedLine, "run: |") || strings.HasPrefix(trimmedLine, "run:|") {
 			inScript = true
 			scriptContent = ""
 			continue
 		}
 
+		// Recolectar contenido del script mientras estamos en uno
 		if inScript {
 			if !strings.HasPrefix(trimmedLine, "-") && !strings.HasPrefix(trimmedLine, "run:") &&
 				len(trimmedLine) > 0 && trimmedLine[0] != '#' {
 				scriptContent += line + "\n"
 
+				// Buscar inputs no sanitizados en script
 				if strings.Contains(line, "${{") && strings.Contains(line, "github.event") &&
 					!strings.Contains(line, "\"${{") && !strings.Contains(line, "'${{") {
 
+					// Excluir patrones seguros comunes
 					if !strings.Contains(line, "github.event.repository") &&
 						!strings.Contains(line, "github.event.number") {
 
@@ -691,6 +759,7 @@ func detectScriptInjection(filePath string, lines []string, workflowData map[str
 					}
 				}
 			} else if !strings.HasPrefix(trimmedLine, " ") && len(strings.TrimSpace(line)) > 0 {
+				// Fin del bloque de script
 				inScript = false
 			}
 		}
@@ -699,6 +768,7 @@ func detectScriptInjection(filePath string, lines []string, workflowData map[str
 	return vulnerabilities
 }
 
+// Función para generar reporte de vulnerabilidades detallado
 func saveDetailedVulnerabilityReport(vulnerabilities []Vulnerability, filename string) error {
 	file, err := os.Create(filename)
 	if err != nil {
@@ -709,12 +779,14 @@ func saveDetailedVulnerabilityReport(vulnerabilities []Vulnerability, filename s
 	w := bufio.NewWriter(file)
 	defer w.Flush()
 
+	// Escribir encabezado
 	fmt.Fprintf(w, "# Reporte de Vulnerabilidades en GitHub Actions Workflows\n\n")
 	fmt.Fprintf(w, "**Fecha**: %s\n\n", time.Now().Format("2006-01-02 15:04:05"))
 	fmt.Fprintf(w, "**Total de vulnerabilidades encontradas**: %d\n\n", len(vulnerabilities))
 	fmt.Fprintf(w, "Este informe ha sido generado automáticamente para detectar patrones de vulnerabilidad en flujos de trabajo de GitHub Actions.\n")
 	fmt.Fprintf(w, "Las vulnerabilidades identificadas representan riesgos potenciales que deberían ser validados y mitigados según su contexto específico.\n\n")
 
+	// Agrupar por tipo y severidad
 	vulnerabilityTypes := make(map[string][]Vulnerability)
 	severityCounts := map[string]int{"Alta": 0, "Media": 0, "Baja": 0}
 
@@ -723,9 +795,11 @@ func saveDetailedVulnerabilityReport(vulnerabilities []Vulnerability, filename s
 		severityCounts[vuln.Severity]++
 	}
 
+	// Resumen ejecutivo por severidad
 	fmt.Fprintf(w, "## Resumen Ejecutivo\n\n")
 	fmt.Fprintf(w, "### Distribución por Severidad\n\n")
 
+	// Mostrar gráfico de barras simple con caracteres ASCII/Markdown
 	maxCount := 0
 	for _, count := range severityCounts {
 		if count > maxCount {
@@ -741,8 +815,10 @@ func saveDetailedVulnerabilityReport(vulnerabilities []Vulnerability, filename s
 		fmt.Fprintf(w, "```\n\n")
 	}
 
+	// Estadísticas por tipo
 	fmt.Fprintf(w, "### Distribución por Tipo de Vulnerabilidad\n\n")
 
+	// Ordenar tipos por cantidad para mostrarlos de mayor a menor
 	type countPair struct {
 		Type  string
 		Count int
@@ -753,17 +829,21 @@ func saveDetailedVulnerabilityReport(vulnerabilities []Vulnerability, filename s
 		pairs = append(pairs, countPair{Type: vulnType, Count: len(vulns)})
 	}
 
+	// Ordenar por cantidad descendiente
 	sort.Slice(pairs, func(i, j int) bool {
 		return pairs[i].Count > pairs[j].Count
 	})
 
+	// Mostrar los tipos en orden
 	for _, pair := range pairs {
 		fmt.Fprintf(w, "- **%s**: %d ocurrencias\n", pair.Type, pair.Count)
 	}
 	fmt.Fprintf(w, "\n")
 
+	// Análisis detallado por tipo con explicaciones, impacto y recomendaciones
 	fmt.Fprintf(w, "## Análisis Detallado por Tipo de Vulnerabilidad\n\n")
 
+	// Usar los tipos ordenados previamente
 	for _, pair := range pairs {
 		vulnType := pair.Type
 		vulns := vulnerabilityTypes[vulnType]
@@ -771,7 +851,8 @@ func saveDetailedVulnerabilityReport(vulnerabilities []Vulnerability, filename s
 		fmt.Fprintf(w, "### %s (%d ocurrencias)\n\n", vulnType, len(vulns))
 
 		if len(vulns) > 0 {
-			vuln := vulns[0]
+			// Mostrar información general sobre este tipo de vulnerabilidad
+			vuln := vulns[0] // Tomar la primera como referencia
 
 			fmt.Fprintf(w, "**Descripción**: %s\n\n", vuln.Description)
 			fmt.Fprintf(w, "**Severidad**: %s\n\n", vuln.Severity)
@@ -779,6 +860,7 @@ func saveDetailedVulnerabilityReport(vulnerabilities []Vulnerability, filename s
 			fmt.Fprintf(w, "**Vector de Explotación**: %s\n\n", vuln.Exploit)
 			fmt.Fprintf(w, "**Recomendación General**: \n%s\n\n", vuln.Mitigation)
 
+			// Mostrar referencias
 			if len(vuln.References) > 0 {
 				fmt.Fprintf(w, "**Referencias y Recursos**:\n\n")
 				for _, ref := range vuln.References {
@@ -787,6 +869,7 @@ func saveDetailedVulnerabilityReport(vulnerabilities []Vulnerability, filename s
 				fmt.Fprintf(w, "\n")
 			}
 
+			// Mostrar cada ocurrencia con detalles
 			fmt.Fprintf(w, "#### Ocurrencias Específicas\n\n")
 
 			for i, vuln := range vulns {
@@ -802,6 +885,7 @@ func saveDetailedVulnerabilityReport(vulnerabilities []Vulnerability, filename s
 		}
 	}
 
+	// Recomendaciones de seguridad generales
 	fmt.Fprintf(w, "## Recomendaciones Generales de Seguridad para GitHub Actions\n\n")
 
 	fmt.Fprintf(w, "### Principios Básicos de Seguridad\n\n")
@@ -813,13 +897,13 @@ func saveDetailedVulnerabilityReport(vulnerabilities []Vulnerability, filename s
 
 	fmt.Fprintf(w, "### Mejores Prácticas Específicas\n\n")
 	fmt.Fprintf(w, "#### Permisos y Autenticación\n\n")
-	fmt.Fprintf(w, "```yaml\npermissions:\n  contents: read\n  issues: write\n```\n\n")
+	fmt.Fprintf(w, "```yaml\n# Definir permisos explícitos y restrictivos\npermissions:\n  contents: read\n  issues: write\n  # Otros permisos específicos según necesidad\n```\n\n")
 
 	fmt.Fprintf(w, "#### Uso Seguro de Acciones de Terceros\n\n")
-	fmt.Fprintf(w, "```yaml\nuses: actions/checkout@a81bbbf8298c0fa03ea29cdc473d45769f953675\n```\n\n")
+	fmt.Fprintf(w, "```yaml\n# Usar SHA completo en lugar de versiones o ramas\nuses: actions/checkout@a81bbbf8298c0fa03ea29cdc473d45769f953675\n```\n\n")
 
 	fmt.Fprintf(w, "#### Manejo Seguro de Inputs\n\n")
-	fmt.Fprintf(w, "```yaml\n- name: Validate input\n  run: |\n    INPUT=\"${{ github.event.inputs.parameter }}\"\n    if [[ ! $INPUT =~ ^[a-zA-Z0-9_-]+$ ]]; then\n      echo \"Input validation failed\"\n      exit 1\n    fi\n    echo \"Validated input: $INPUT\"\n```\n\n")
+	fmt.Fprintf(w, "```yaml\n# Validar y sanitizar inputs\n- name: Validate input\n  run: |\n    INPUT=\"${{ github.event.inputs.parameter }}\"\n    if [[ ! $INPUT =~ ^[a-zA-Z0-9_-]+$ ]]; then\n      echo \"Input validation failed\"\n      exit 1\n    fi\n    echo \"Validated input: $INPUT\"\n```\n\n")
 
 	fmt.Fprintf(w, "#### GitHub Advanced Security (GHAS)\n\n")
 	fmt.Fprintf(w, "Considerar la activación de las siguientes características de GitHub Advanced Security:\n\n")
@@ -837,16 +921,20 @@ func saveDetailedVulnerabilityReport(vulnerabilities []Vulnerability, filename s
 	return nil
 }
 
+// Guardar las vulnerabilidades en formato SARIF (JSON estándar para resultados de análisis estático)
 func saveVulnerabilitiesAsSARIF(vulnerabilities []Vulnerability, filename string) error {
+	// Crear un mapa para almacenar reglas únicas
 	uniqueRuleIds := make(map[string]bool)
 	var rules []SARIFRule
 
+	// Crear las reglas SARIF a partir de las vulnerabilidades
 	for _, vuln := range vulnerabilities {
 		ruleID := strings.ReplaceAll(vuln.Type, " ", "")
 
 		if !uniqueRuleIds[ruleID] {
 			uniqueRuleIds[ruleID] = true
 
+			// Convertir severidad a formato numérico estándar CVSS
 			var securitySeverity string
 			switch vuln.Severity {
 			case "Alta":
@@ -859,6 +947,7 @@ func saveVulnerabilitiesAsSARIF(vulnerabilities []Vulnerability, filename string
 				securitySeverity = "1.0"
 			}
 
+			// Crear regla SARIF para este tipo de vulnerabilidad
 			rule := SARIFRule{
 				ID:   ruleID,
 				Name: vuln.Type,
@@ -880,10 +969,12 @@ func saveVulnerabilitiesAsSARIF(vulnerabilities []Vulnerability, filename string
 		}
 	}
 
+	// Crear resultados SARIF a partir de las vulnerabilidades
 	var results []SARIFResult
 	for _, vuln := range vulnerabilities {
 		ruleID := strings.ReplaceAll(vuln.Type, " ", "")
 
+		// Mapear severidad a nivel SARIF
 		level := "warning"
 		if vuln.Severity == "Alta" {
 			level = "error"
@@ -891,10 +982,12 @@ func saveVulnerabilitiesAsSARIF(vulnerabilities []Vulnerability, filename string
 			level = "note"
 		}
 
+		// Crear mensaje específico para esta instancia de vulnerabilidad
 		message := SARIFMessage{
 			Text: fmt.Sprintf("%s - %s", vuln.Description, strings.Split(vuln.Details, "\n")[0]),
 		}
 
+		// Crear resultado SARIF para esta vulnerabilidad
 		result := SARIFResult{
 			RuleID:  ruleID,
 			Level:   level,
@@ -918,9 +1011,11 @@ func saveVulnerabilitiesAsSARIF(vulnerabilities []Vulnerability, filename string
 		results = append(results, result)
 	}
 
+	// Crear tiempos para la invocación
 	startTime := time.Now().Add(-1 * time.Hour).UTC().Format(time.RFC3339)
 	endTime := time.Now().UTC().Format(time.RFC3339)
 
+	// Construir el reporte SARIF completo
 	sarifReport := SARIFReport{
 		Schema:  "https://json.schemastore.org/sarif-2.1.0.json",
 		Version: "2.1.0",
@@ -946,11 +1041,13 @@ func saveVulnerabilitiesAsSARIF(vulnerabilities []Vulnerability, filename string
 		},
 	}
 
+	// Serializar a JSON con formato legible
 	jsonData, err := json.MarshalIndent(sarifReport, "", "  ")
 	if err != nil {
 		return fmt.Errorf("error al crear JSON SARIF: %w", err)
 	}
 
+	// Guardar en archivo
 	err = os.WriteFile(filename, jsonData, 0644)
 	if err != nil {
 		return fmt.Errorf("error al guardar archivo SARIF: %w", err)
@@ -959,6 +1056,7 @@ func saveVulnerabilitiesAsSARIF(vulnerabilities []Vulnerability, filename string
 	return nil
 }
 
+// Estructuras SARIF para el formato JSON estándar
 type SARIFReport struct {
 	Schema  string     `json:"$schema"`
 	Version string     `json:"version"`
@@ -1035,6 +1133,7 @@ type SARIFInvocation struct {
 	EndTimeUTC          string `json:"endTimeUtc"`
 }
 
+// Funciones auxiliares
 func min(a, b int) int {
 	if a < b {
 		return a

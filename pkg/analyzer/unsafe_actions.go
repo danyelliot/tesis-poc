@@ -7,34 +7,27 @@ import (
 	"github.com/cmalvaceda/tesis-poc/pkg/models"
 )
 
-// UnsafeActionsDetector detecta uso inseguro de acciones
 type UnsafeActionsDetector struct{}
 
-// NewUnsafeActionsDetector crea un nuevo detector de acciones inseguras
 func NewUnsafeActionsDetector() *UnsafeActionsDetector {
 	return &UnsafeActionsDetector{}
 }
 
-// Detect implementa la interfaz Detector
 func (d *UnsafeActionsDetector) Detect(filePath string, lines []string, workflowData map[string]interface{}) []models.Vulnerability {
 	var vulnerabilities []models.Vulnerability
 
-	// Patrones para detectar usos inseguros de acciones
 	actionWithoutVersionPattern := regexp.MustCompile(`uses:\s+[^@]+$`)
 	actionWithBranchPattern := regexp.MustCompile(`uses:\s+[^@]+@\s*(main|master|develop|dev)`)
 
-	// Patrón para verificar si se usa un SHA completo (40 caracteres hex)
 	fullSHAPattern := regexp.MustCompile(`uses:\s+[^@]+@[0-9a-f]{40}`)
 
 	for i, line := range lines {
 		trimmedLine := strings.TrimSpace(line)
 		if strings.HasPrefix(trimmedLine, "uses:") {
-			// Verificar si ya usa un SHA completo (práctica segura)
 			if fullSHAPattern.MatchString(trimmedLine) {
-				continue // Esta referencia es segura, usa un SHA completo
+				continue
 			}
 
-			// Caso 1: Acción sin versión específica
 			if actionWithoutVersionPattern.MatchString(trimmedLine) {
 				vulnerabilities = append(vulnerabilities, models.Vulnerability{
 					Type:        string(models.UnsafeActionReference),
@@ -62,7 +55,6 @@ func (d *UnsafeActionsDetector) Detect(filePath string, lines []string, workflow
 				})
 			}
 
-			// Caso 2: Acción referenciando una rama (no un tag o commit)
 			if actionWithBranchPattern.MatchString(trimmedLine) {
 				vulnerabilities = append(vulnerabilities, models.Vulnerability{
 					Type:        string(models.UnsafeActionReference),

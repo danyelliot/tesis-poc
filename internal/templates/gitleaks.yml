@@ -1,0 +1,31 @@
+name: "GitLeaks Secret Scanning"
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  pull_request:
+    branches: [ "main", "master" ]
+  schedule:
+    - cron: '0 2 * * 1'  # Ejecutar a las 2:00 AM todos los lunes
+
+jobs:
+  scan:
+    name: Scan for Secrets
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+      
+      - name: GitLeaks Scan
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
+          
+      - name: Upload SARIF report
+        if: always()
+        uses: github/codeql-action/upload-sarif@v2
+        with:
+          sarif_file: results/gitleaks.sarif

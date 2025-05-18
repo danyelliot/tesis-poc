@@ -1,0 +1,5 @@
+microsoft/setup-msbuild: .github/workflows/test.yml
+warrenbuckley/Setup-MSBuild: .github/workflows/checkin.yml
+darenm/Setup-VSTest: .github/workflows/test.yml
+Malcolmnixon/Setup-VSTest: .github/workflows/codeql-analysis.yml,.github/workflows/node.js.yml
+microsoft/setup-msbuild: .github/workflows/test.yml

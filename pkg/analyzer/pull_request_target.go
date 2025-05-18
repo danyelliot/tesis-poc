@@ -6,29 +6,22 @@ import (
 	"github.com/cmalvaceda/tesis-poc/pkg/models"
 )
 
-// PullRequestTargetDetector detecta uso inseguro de pull_request_target
 type PullRequestTargetDetector struct{}
 
-// NewPullRequestTargetDetector crea un nuevo detector de pull_request_target
 func NewPullRequestTargetDetector() *PullRequestTargetDetector {
 	return &PullRequestTargetDetector{}
 }
 
-// Detect implementa la interfaz Detector
 func (d *PullRequestTargetDetector) Detect(filePath string, lines []string, workflowData map[string]interface{}) []models.Vulnerability {
 	var vulnerabilities []models.Vulnerability
 
-	// Verificar si el workflow se activa con pull_request_target
 	hasPullRequestTarget := false
 
-	// Buscar diferentes formas de definir pull_request_target
 	if on, ok := workflowData["on"].(interface{}); ok {
-		// Caso 1: on: pull_request_target
 		if prTarget, ok := on.(string); ok && prTarget == "pull_request_target" {
 			hasPullRequestTarget = true
 		}
 
-		// Caso 2: on: ["push", "pull_request_target", ...]
 		if events, ok := on.([]interface{}); ok {
 			for _, event := range events {
 				if eventStr, ok := event.(string); ok && eventStr == "pull_request_target" {
@@ -38,7 +31,6 @@ func (d *PullRequestTargetDetector) Detect(filePath string, lines []string, work
 			}
 		}
 
-		// Caso 3: on: { pull_request_target: {...} }
 		if events, ok := on.(map[string]interface{}); ok {
 			if _, ok := events["pull_request_target"]; ok {
 				hasPullRequestTarget = true
@@ -47,12 +39,10 @@ func (d *PullRequestTargetDetector) Detect(filePath string, lines []string, work
 	}
 
 	if hasPullRequestTarget {
-		// Buscar patrones peligrosos en workflows con pull_request_target
 		hasCheckout := false
 		checkoutWithRef := false
 		hasScriptExecution := false
 
-		// Buscar acciones de checkout y ver si usan refs específicas
 		checkoutPattern := regexp.MustCompile(`uses:\s+actions/checkout@`)
 		refSafePattern := regexp.MustCompile(`ref:\s*\$\{\{\s*github\.event\.pull_request\.base\.sha\s*\}\}`)
 		refUnsafePattern := regexp.MustCompile(`ref:\s*\$\{\{\s*github\.event\.pull_request\.head\.`)
@@ -62,14 +52,12 @@ func (d *PullRequestTargetDetector) Detect(filePath string, lines []string, work
 			if checkoutPattern.MatchString(line) {
 				hasCheckout = true
 
-				// Buscar en las líneas cercanas si hay una referencia
 				for j := max(0, i-5); j < min(len(lines), i+5); j++ {
 					if refSafePattern.MatchString(lines[j]) {
-						checkoutWithRef = true // Referencia segura encontrada
+						checkoutWithRef = true
 						break
 					}
 					if refUnsafePattern.MatchString(lines[j]) {
-						// Encontró una referencia específica pero insegura
 						hasCheckout = true
 						checkoutWithRef = false
 
@@ -100,13 +88,11 @@ func (d *PullRequestTargetDetector) Detect(filePath string, lines []string, work
 				}
 			}
 
-			// Buscar ejecución de scripts en el workflow
 			if scriptRunPattern.MatchString(line) {
 				hasScriptExecution = true
 			}
 		}
 
-		// Si tiene checkout sin referencia segura y ejecuta scripts
 		if hasCheckout && !checkoutWithRef && hasScriptExecution {
 			vulnerabilities = append(vulnerabilities, models.Vulnerability{
 				Type:        string(models.UnsafePullRequestTarget),

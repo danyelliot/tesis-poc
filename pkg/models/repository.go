@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"os/exec"
 	"strings"
 )
 
@@ -20,6 +21,52 @@ type RepoInfo struct {
 type RepoWorkflows struct {
 	FullName      string
 	WorkflowFiles []string
+}
+
+// Repository represents a GitHub repository with all required fields for GHAS automation
+type Repository struct {
+	FullName      string
+	Name          string
+	Owner         string
+	CloneURL      string
+	DefaultBranch string
+	Language      string
+}
+
+// Command represents a shell command that can be executed
+type Command struct {
+	cmd        string
+	args       []string
+	workingDir string
+}
+
+// NewCommand creates a new command with the specified command and arguments
+func NewCommand(cmd string, args ...string) *Command {
+	return &Command{
+		cmd:  cmd,
+		args: args,
+	}
+}
+
+// SetDir sets the working directory for the command
+func (c *Command) SetDir(dir string) {
+	c.workingDir = dir
+}
+
+// Run executes the command and returns the output
+func (c *Command) Run() (string, error) {
+	cmd := exec.Command(c.cmd, c.args...)
+	if c.workingDir != "" {
+		cmd.Dir = c.workingDir
+	}
+
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return string(output), fmt.Errorf("error ejecutando comando '%s %s': %w - Output: %s",
+			c.cmd, strings.Join(c.args, " "), err, string(output))
+	}
+
+	return string(output), nil
 }
 
 // ReadRepoWorkflows lee la lista de repositorios y workflows desde un archivo
