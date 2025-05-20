@@ -2,6 +2,8 @@
 
 Este documento describe el flujo de trabajo completo de la herramienta de análisis de seguridad para GitHub Actions, desde la recolección de repositorios hasta la generación de reportes de vulnerabilidades.
 
+> **Nota**: Este documento contiene diagramas del flujo de trabajo original. Para ver los diagramas actualizados que incluyen el sistema de tracking de repositorios procesados, la resolución de colisiones de directorios y mejoras en el manejo de Git, consulte el archivo [README.md](README.md) principal.
+
 ## Visión General del Flujo de Trabajo
 
 ```mermaid
@@ -134,21 +136,28 @@ Este flujo complementa el análisis de vulnerabilidades, proporcionando una form
 ```mermaid
 flowchart TD
     Start[Iniciar proceso] --> ConfigGHAS[Configuración inicial]
-    ConfigGHAS --> RepoDecision{¿Repo específico?}
+    ConfigGHAS --> LoadTracking[Cargar registro de repositorios]
+    LoadTracking --> RepoDecision{¿Repo específico?}
     
     RepoDecision -- Sí --> ProcessSpecific[Procesar repo específico]
     RepoDecision -- No --> SearchRepos[Buscar repos con workflows]
     
     SearchRepos --> FilterRepos[Filtrar repos válidos]
-    FilterRepos --> SaveRepoList[Guardar lista de repos]
-    ProcessSpecific --> SaveRepoList
+    FilterRepos --> FilterProcessed[Filtrar repos ya procesados]
+    FilterProcessed --> SaveRepoList[Guardar lista de repos]
+    ProcessSpecific --> AlreadyProcessed{¿Ya procesado?}
+    AlreadyProcessed -- Sí --> SkipCheck{¿Omitir procesados?}
+    SkipCheck -- Sí --> SkipRepo[Omitir repo]
+    SkipCheck -- No --> SaveRepoList
+    AlreadyProcessed -- No --> SaveRepoList
     
     SaveRepoList --> CollectOnly{¿Solo recolección?}
     CollectOnly -- Sí --> End[Finalizar proceso]
     CollectOnly -- No --> ProcessRepos[Procesar repositorios]
     
     ProcessRepos --> Fork[Crear fork del repo]
-    Fork --> Clone[Clonar fork localmente]
+    Fork --> CreateUniqueDir[Crear directorio único con timestamp]
+    CreateUniqueDir --> Clone[Clonar fork localmente]
     Clone --> BranchCheck{¿Existe rama GHAS?}
     
     BranchCheck -- Sí --> ForceCheck{¿Forzar actualización?}
@@ -172,12 +181,27 @@ flowchart TD
     
     ContainerCheck{¿Scan contenedores habilitado?}
     ContainerCheck -- Sí --> AddContainerScan[Configurar Trivy]
-    ContainerCheck -- No --> Commit
-    AddContainerScan --> Commit
+    ContainerCheck -- No --> ChangesCheck
+    AddContainerScan --> ChangesCheck
     
-    Commit[Crear commit con cambios]
+    ChangesCheck{¿Hay cambios?}
+    ChangesCheck -- No --> MarkNoChanges[Registrar sin cambios]
+    ChangesCheck -- Sí --> Commit[Crear commit con cambios]
+    
     Commit --> Push[Enviar cambios a GitHub]
-    Push --> CleanupCheck{¿Limpiar fork?}
+    Push --> TrackRepo[Actualizar registro de repositorios]
+    MarkNoChanges --> TrackRepo
+    SkipRepo --> TrackRepo
+    
+    TrackRepo --> CleanupCheck{¿Limpiar fork?}
+    
+    classDef tracking fill:#ff9,stroke:#333,stroke-width:1px;
+    classDef uniqueDir fill:#bfb,stroke:#333,stroke-width:1px;
+    classDef changes fill:#ff9,stroke:#333,stroke-width:1px;
+    
+    class LoadTracking,FilterProcessed,AlreadyProcessed,SkipCheck,TrackRepo tracking;
+    class CreateUniqueDir uniqueDir;
+    class ChangesCheck,MarkNoChanges changes;
     
     CleanupCheck -- Sí --> DeleteFork[Eliminar fork]
     CleanupCheck -- No --> NextRepo

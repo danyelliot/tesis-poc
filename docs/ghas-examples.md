@@ -32,9 +32,28 @@ Este documento proporciona ejemplos prácticos para probar las funcionalidades d
 ```bash
 # Aplicar GHAS a los repositorios en el archivo especificado
 ./test-single-repo.sh -i repositorios_candidatos.txt
+
+# Aplicar GHAS omitiendo repositorios ya procesados
+./test-single-repo.sh -i repositorios_candidatos.txt --skip-processed
+
+# Usar un archivo personalizado para el registro de repositorios procesados
+./test-single-repo.sh -i repositorios_candidatos.txt --processed mi_tracking.json
 ```
 
 ## Pruebas Avanzadas
+
+### Sistema de tracking de repositorios
+
+```bash
+# Ver qué repositorios ya se han procesado
+cat processed_repos.json
+
+# Procesar repositorios incluso si ya fueron procesados 
+./ghas-full-flow.sh -m 10 --skip-processed=false
+
+# Procesar repositorios desde el último punto y guardar en archivo personalizado
+./ghas-full-flow.sh -i repos_pendientes.txt --processed historial_repos.json
+```
 
 ### Personalizar herramientas de seguridad
 

@@ -20,9 +20,10 @@ import (
 
 // Constants for GHAS full flow automation
 const (
-	defaultMaxRepos = 10
-	branchName      = "ghas-analysis"
-	tempDirPrefix   = "ghas-analysis-"
+	defaultMaxRepos           = 10
+	branchName                = "ghas-analysis"
+	tempDirPrefix             = "ghas-analysis-"
+	defaultProcessedReposFile = "processed_repos.json"
 )
 
 // Paths to template files
@@ -52,6 +53,8 @@ func main() {
 	specificRepo := flag.String("repo", "", "Procesar un repositorio específico (formato: 'propietario/nombre').")
 	showUserInfo := flag.Bool("userinfo", false, "Mostrar información del usuario autenticado y sus forks.")
 	forceUpdate := flag.Bool("force", false, "Forzar la actualización de ramas existentes.")
+	processedReposFile := flag.String("processed", defaultProcessedReposFile, "Archivo para guardar el registro de repositorios ya procesados.")
+	skipProcessed := flag.Bool("skip-processed", true, "Omitir repositorios que ya han sido procesados anteriormente.")
 	flag.Parse()
 
 	// Validate max repos
@@ -88,6 +91,13 @@ func main() {
 		log.Fatalf("Error al obtener usuario autenticado: %v", err)
 	}
 	log.Printf("Autenticado como: %s\n", user)
+
+	// Inicializar registro de repositorios procesados
+	processedRepos, err := models.NewProcessedRepositories(*processedReposFile)
+	if err != nil {
+		log.Printf("Advertencia al cargar repositorios procesados: %v", err)
+	}
+	log.Printf("Registro cargado: %d repositorios procesados anteriormente", processedRepos.Count())
 
 	// Si se solicita mostrar información del usuario
 	if *showUserInfo {
@@ -186,6 +196,7 @@ func main() {
 	log.Printf("\nFASE 2: ANÁLISIS GHAS - Configurando GitHub Advanced Security en cada repositorio...\n")
 
 	processedCount := 0
+	skippedCount := 0
 	for i, repo := range repoWorkflows {
 		log.Printf("[%d/%d] Procesando repositorio: %s\n", i+1, len(repoWorkflows), repo.FullName)
 
@@ -198,6 +209,16 @@ func main() {
 
 		owner := parts[0]
 		repoName := parts[1]
+
+		// Check if repository was already processed
+		if *skipProcessed && processedRepos.IsProcessed(repo.FullName) {
+			prevRepo, _ := processedRepos.GetProcessed(repo.FullName)
+			log.Printf("  Repositorio ya procesado anteriormente (%s). Resultado previo: %v. Saltando.",
+				prevRepo.ProcessedAt.Format("2006-01-02 15:04:05"),
+				prevRepo.Success)
+			skippedCount++
+			continue
+		}
 
 		// Check if we want to limit the number of processed repositories
 		if processedCount >= maxRepos {
@@ -215,11 +236,25 @@ func main() {
 		}
 
 		// Clone the forked repository
-		repoDir := filepath.Join(workDir, repoName)
+		// Usar un nombre de directorio único para evitar colisiones
+		repoDir := filepath.Join(workDir, fmt.Sprintf("%s-%d", repoName, time.Now().UnixNano()))
 		log.Printf("  Clonando fork a: %s\n", repoDir)
+
+		// Verificar si el directorio ya existe y eliminarlo si es necesario
+		if _, err := os.Stat(repoDir); err == nil {
+			log.Printf("  El directorio ya existe, eliminándolo: %s\n", repoDir)
+			err = os.RemoveAll(repoDir)
+			if err != nil {
+				log.Printf("  Error al eliminar directorio existente: %v. Saltando.\n", err)
+				processedRepos.MarkAsProcessed(repo.FullName, false, fmt.Sprintf("Error al eliminar directorio: %v", err))
+				continue
+			}
+		}
+
 		err = runGitCommand("", "clone", fork.CloneURL, repoDir)
 		if err != nil {
 			log.Printf("  Error al clonar repositorio: %v. Saltando.\n", err)
+			processedRepos.MarkAsProcessed(repo.FullName, false, fmt.Sprintf("Error al clonar: %v", err))
 			continue
 		} // Verificar si ya existe la rama ghas-analysis
 		log.Printf("  Verificando si ya existe la rama %s...\n", branchName)
@@ -354,13 +389,28 @@ func main() {
 		err = runGitCommand(repoDir, "add", ".")
 		if err != nil {
 			log.Printf("  Error al agregar archivos: %v. Saltando.\n", err)
+			processedRepos.MarkAsProcessed(repo.FullName, false, fmt.Sprintf("Error al agregar archivos: %v", err))
 			continue
 		}
 
-		err = runGitCommand(repoDir, "commit", "-m", "Add GitHub Advanced Security configuration")
+		// Verificar si hay cambios para commitear
+		statusOutput, err := runGitCommandWithOutput(repoDir, "status", "--porcelain")
 		if err != nil {
-			log.Printf("  Error al crear commit: %v. Saltando.\n", err)
+			log.Printf("  Error al verificar estado de Git: %v. Saltando.\n", err)
+			processedRepos.MarkAsProcessed(repo.FullName, false, fmt.Sprintf("Error al verificar estado: %v", err))
 			continue
+		}
+
+		if strings.TrimSpace(statusOutput) == "" {
+			log.Printf("  No hay cambios que commitear. Continuando sin crear commit.")
+		} else {
+			log.Printf("  Creando commit...")
+			err = runGitCommand(repoDir, "commit", "-m", "Add GitHub Advanced Security configuration")
+			if err != nil {
+				log.Printf("  Error al crear commit: %v. Saltando.\n", err)
+				processedRepos.MarkAsProcessed(repo.FullName, false, fmt.Sprintf("Error al crear commit: %v", err))
+				continue
+			}
 		}
 
 		log.Printf("  Enviando cambios a GitHub...\n")
@@ -405,12 +455,26 @@ func main() {
 			}
 		}
 
+		// Marcar este repositorio como procesado exitosamente
+		err = processedRepos.MarkAsProcessed(repo.FullName, true, "Procesado correctamente")
+		if err != nil {
+			log.Printf("  Advertencia: Error al registrar repositorio como procesado: %v\n", err)
+		}
 		log.Printf("  Procesamiento de %s completado\n", repo.FullName)
 	}
 
-	log.Printf("\nFLUJO COMPLETO FINALIZADO: %d repositorios procesados\n", processedCount)
-	log.Printf("El análisis GHAS se ha configurado correctamente y comenzará automáticamente en los forks creados.\n")
-	log.Printf("Los resultados del análisis estarán disponibles en la pestaña 'Seguridad' de cada repositorio fork en GitHub.\n")
+	// Guardar el estado final del proceso
+	err = processedRepos.Save()
+	if err != nil {
+		log.Printf("Advertencia: Error al guardar el registro de repositorios procesados: %v\n", err)
+	}
+
+	log.Printf("\nFLUJO COMPLETO FINALIZADO:")
+	log.Printf("* Repositorios procesados: %d", processedCount)
+	log.Printf("* Repositorios omitidos (ya procesados): %d", skippedCount)
+	log.Printf("* Total de repositorios en historial: %d", processedRepos.Count())
+	log.Printf("\nEl análisis GHAS se ha configurado correctamente y comenzará automáticamente en los forks creados.")
+	log.Printf("Los resultados del análisis estarán disponibles en la pestaña 'Seguridad' de cada repositorio fork en GitHub.")
 }
 
 // addWorkflowFromTemplate reads a template file and creates a workflow file with replacements

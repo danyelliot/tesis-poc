@@ -30,15 +30,25 @@ Este proyecto surge de la necesidad de evaluar y mejorar de forma masiva la segu
 
 ```mermaid
 graph TD
-    A[Inicio] --> B[Descubrir Repositorios]
+    A[Inicio] --> CheckTracking[Verificar Repositorios Procesados]
+    CheckTracking --> B[Descubrir Repositorios]
     B --> C[Crear Fork]
-    C --> D[Detectar Lenguajes]
+    C --> UniqueDir[Crear Directorio Único]
+    UniqueDir --> D[Detectar Lenguajes]
     D --> E[Configurar GHAS]
-    E --> F[Ejecutar Análisis]
+    E --> ChangeCheck{¿Hay cambios?}
+    ChangeCheck --> |Sí| F[Ejecutar Análisis]
+    ChangeCheck --> |No| Skip[Omitir Commit]
     F --> G[Resultados Seguridad]
+    G --> TrackRepo[Registrar Repositorio Procesado]
+    Skip --> TrackRepo
     
     style A fill:#f9f,stroke:#333
     style G fill:#bbf,stroke:#333
+    style CheckTracking fill:#ff9,stroke:#333
+    style TrackRepo fill:#ff9,stroke:#333
+    style UniqueDir fill:#bfb,stroke:#333
+    style ChangeCheck fill:#ff9,stroke:#333
 ```
 
 ## Características Principales
@@ -47,6 +57,8 @@ graph TD
 - **Detección Inteligente de Lenguajes**: Identifica con precisión los lenguajes de programación utilizados en cada repositorio
 - **Soporte Multi-lenguaje**: Configura correctamente CodeQL para repositorios que utilizan múltiples lenguajes de programación
 - **Gestión Avanzada de Forks**: Maneja la creación, actualización y limpieza de forks de repositorios
+- **Procesamiento Incremental**: Mantiene un registro de repositorios procesados para evitar duplicación de trabajo
+- **Manejo Inteligente de Errores**: Evita errores comunes como colisiones de directorios y commits sin cambios
 - **Adaptabilidad**: Personaliza análisis según los lenguajes y características específicas de cada repositorio
 - **Escalabilidad**: Procesa desde uno hasta miles de repositorios con manejo adecuado de límites de API
 - **Configuración de Seguridad Integral**: Implementa múltiples capas de protección:
@@ -61,27 +73,37 @@ La herramienta implementa un flujo completo en dos etapas principales que se pue
 
 ```mermaid
 flowchart TB
-    subgraph "Fase 1: Descubrimiento"
+    subgraph "Fase 1: Descubrimiento y Tracking"
     Start([Inicio]) --> ConfigInit[Cargar configuración]
-    ConfigInit --> APISearch[Búsqueda API GitHub]
+    ConfigInit --> LoadTracking[Cargar registro de repos procesados]
+    LoadTracking --> APISearch[Búsqueda API GitHub]
     APISearch --> FilterWorkflows[Filtrar repos con workflows]
-    FilterWorkflows --> StoreRepos[Almacenar lista de repositorios]
+    FilterWorkflows --> FilterProcessed[Filtrar repos ya procesados]
+    FilterProcessed --> StoreRepos[Almacenar lista de repositorios]
     end
     
     subgraph "Fase 2: Automatización GHAS" 
     StoreRepos --> |Para cada repositorio| Fork[Crear fork]
-    Fork --> Clone[Clonar localmente]
+    Fork --> Clone[Clonar en directorio único]
     Clone --> LangDetect[Detectar lenguajes]
     LangDetect --> BranchMgmt[Gestionar ramas]
     BranchMgmt --> ConfigTools[Configurar herramientas GHAS]
-    ConfigTools --> Push[Enviar cambios]
+    ConfigTools --> ChangesCheck{¿Hay cambios?}
+    ChangesCheck -->|Sí| Push[Enviar cambios]
+    ChangesCheck -->|No| SkipPush[Omitir push]
     Push --> TriggerAnalysis[Disparar análisis]
+    SkipPush --> RecordStatus[Registrar estado]
+    TriggerAnalysis --> RecordStatus
     end
     
-    TriggerAnalysis --> Results([Resultados en GitHub Security])
+    RecordStatus --> Results([Resultados en GitHub Security])
 
     class Start,Results round
     style Start fill:#f9f,stroke:#333
+    style LoadTracking,FilterProcessed fill:#ff9,stroke:#333
+    style Clone fill:#bfb,stroke:#333
+    style ChangesCheck fill:#ff9,stroke:#333
+    style RecordStatus fill:#ff9,stroke:#333
     style Results fill:#bbf,stroke:#333
 ```
 
@@ -173,19 +195,39 @@ flowchart LR
     OptionType --> |--repo| SingleRepo[Procesar un repositorio específico]
     OptionType --> |--collect-only| CollectOnly[Solo recolectar repositorios]
     OptionType --> |--userinfo| UserInfo[Mostrar información de usuario]
+    OptionType --> |--processed| TrackFile[Usar archivo de tracking]
+    OptionType --> |--skip-processed| SkipProc[Omitir repos procesados]
     OptionType --> |Default| ProcessAll[Flujo completo con múltiples repos]
     
-    SingleRepo --> Fork[Crear fork]
-    CollectOnly --> SaveList[Guardar lista de repositorios]
-    ProcessAll --> Search[Buscar repositorios]
-    Search --> Fork
+    SingleRepo --> ProcessCheck{¿Ya procesado?}
+    ProcessCheck -->|Sí, --skip-processed| Skip[Omitir repositorio]
+    ProcessCheck -->|No| Fork[Crear fork]
     
-    Fork --> Configure[Configurar GHAS]
-    Configure --> Results[Resultados en GitHub Security]
+    CollectOnly --> SaveList[Guardar lista de repositorios]
+    TrackFile --> ProcessAll
+    SkipProc --> ProcessAll
+    ProcessAll --> Search[Buscar repositorios]
+    Search --> ProcessCheck
+    
+    Fork --> UniqueDirs[Crear directorios únicos]
+    UniqueDirs --> Configure[Configurar GHAS]
+    Configure --> ChangeCheck{¿Hay cambios?}
+    ChangeCheck -->|Sí| ApplyChanges[Aplicar y enviar cambios]
+    ChangeCheck -->|No| NoChanges[Registrar sin cambios]
+    
+    ApplyChanges --> UpdateTracking[Actualizar registro]
+    NoChanges --> UpdateTracking
+    Skip --> UpdateTracking
+    
+    UpdateTracking --> Results[Resultados en GitHub Security]
     
     class Start,Results round
     style Start fill:#f9f,stroke:#333
     style Results fill:#bbf,stroke:#333
+    style ProcessCheck,TrackFile,SkipProc fill:#ff9,stroke:#333
+    style UniqueDirs fill:#bfb,stroke:#333
+    style ChangeCheck fill:#ff9,stroke:#333
+    style UpdateTracking fill:#ff9,stroke:#333
 ```
 
 #### Ejemplos de uso
@@ -205,6 +247,12 @@ flowchart LR
 
 # Flujo completo con limpieza de forks después del análisis
 ./ghas-full-flow.sh -m 3 --cleanup
+
+# Procesar repositorios incluso si ya han sido procesados anteriormente
+./ghas-full-flow.sh -m 5 --skip-processed=false
+
+# Usar un archivo diferente para el registro de repositorios procesados
+./ghas-full-flow.sh -m 10 --processed mi_registro_personalizado.json
 ```
 
 #### Opciones disponibles
@@ -215,6 +263,8 @@ flowchart LR
 | `-m, --max`       | Número máximo de repositorios a procesar                  | 10                   |
 | `-o, --output`    | Archivo de salida para guardar resultados                 | repos_workflows_ghas.txt |
 | `-q, --query`     | Consulta personalizada para buscar repositorios           | path:.github/workflows |
+| `--processed`     | Archivo para el registro de repositorios procesados       | processed_repos.json |
+| `--skip-processed`| Omitir repositorios ya procesados                         | true                 |
 | `--no-gitleaks`   | Desactivar análisis de secretos con GitLeaks             | false                |
 | `--no-container`  | Desactivar análisis de contenedores Docker                | false                |
 | `--cleanup`       | Eliminar forks después del análisis                       | false                |
@@ -496,6 +546,8 @@ Este proyecto incluye herramientas para automatizar la configuración y análisi
 - **Gestión de forks**: Crea forks de repositorios para aplicar y ejecutar herramientas GHAS
 - **Manejo inteligente de ramas**: Detecta branches existentes y permite actualizaciones forzadas
 - **Gestión avanzada de autenticación**: Configura correctamente las credenciales para operaciones Git
+- **Sistema de control de procesamiento**: Registra y gestiona repositorios ya procesados para evitar trabajo duplicado
+- **Manejo robusto de errores comunes**: Evita problemas como colisiones de directorios y commits sin cambios
 
 ### Flujo de Trabajo Completo de GHAS Automation
 
@@ -547,437 +599,225 @@ Puede ejecutar el flujo completo usando el script `ghas-full-flow.sh`:
 # Forzar actualización de repositorios que ya tienen configuración GHAS
 ./ghas-full-flow.sh -r propietario/repositorio --force
 
+# Usar un archivo específico para registrar repositorios procesados
+./ghas-full-flow.sh -m 20 --processed mi_registro_repos.json
+
+# Procesar repositorios incluso si ya fueron procesados anteriormente
+./ghas-full-flow.sh --skip-processed=false
+
+# Procesar repositorios nuevos y omitir los ya procesados con éxito
+./ghas-full-flow.sh --processed-repos registro_previo.json --skip-processed
+
+# Verificar qué repositorios se han procesado y cuáles no
+cat processed_repos.json
+
 # Ver información del usuario autenticado y sus forks
 ./ghas-full-flow.sh --userinfo
 ```
 
 Los resultados del análisis GHAS estarán disponibles en la pestaña "Seguridad" de cada repositorio fork en GitHub.
 
-### Opciones disponibles
+## Sistema de Control de Repositorios Procesados
 
-| Opción            | Descripción                                                 |
-|-------------------|-------------------------------------------------------------|
-| `-r, --repo`      | Procesar un repositorio específico                          |
-| `-m, --max`       | Número máximo de repositorios a procesar                    |
-| `-o, --output`    | Archivo de salida para guardar resultados                   |
-| `-q, --query`     | Consulta personalizada para buscar repositorios             |
-| `--no-gitleaks`   | Desactivar análisis de secretos con GitLeaks               |
-| `--no-container`  | Desactivar análisis de contenedores Docker                  |
-| `--cleanup`       | Eliminar forks después del análisis                         |
-| `--collect-only`  | Sólo recolectar repositorios sin aplicar GHAS               |
-| `--userinfo`      | Mostrar información del usuario autenticado y sus forks     |
-| `--force`         | Forzar actualización en repositorios con configuración GHAS |
-
-## Detección Inteligente de Lenguajes
-
-La detección inteligente de lenguajes es uno de los componentes más críticos y sofisticados del sistema, ya que de ella depende la correcta configuración y ejecución de las herramientas GHAS.
+El sistema incorpora un mecanismo inteligente para rastrear y gestionar repositorios ya procesados, lo que mejora la eficiencia y previene errores en ejecuciones repetidas:
 
 ```mermaid
-flowchart TD
-    Start([Inicio]) --> ReadFiles[Leer archivos del repositorio]
-    ReadFiles --> FilterFiles[Filtrar directorios irrelevantes]
-    FilterFiles --> MapExtensions[Mapear extensiones a lenguajes]
-    MapExtensions --> CountLanguages[Contar archivos por lenguaje]
-    CountLanguages --> ApplyThresholds[Aplicar umbrales mínimos]
-    ApplyThresholds --> MultiLangCheck{¿Múltiples lenguajes?}
+graph TD
+    A[Inicio Procesamiento] --> B{¿Repo ya procesado?}
+    B -->|Sí| C[Verificar estado anterior]
+    B -->|No| D[Procesar repositorio]
+    C -->|Procesar de nuevo| E[Forzar procesamiento]
+    C -->|Omitir| F[Saltar al siguiente]
+    D --> G[Registrar resultado]
+    E --> G
+    G --> H[Guardar registro]
     
-    MultiLangCheck -- Sí --> FormatMultiLang[Formatear configuración multi-lenguaje]
-    MultiLangCheck -- No --> SelectPrimary[Seleccionar lenguaje principal]
-    
-    FormatMultiLang --> MapToEcosystems[Mapear a ecosistemas de paquetes]
-    SelectPrimary --> MapToEcosystems
-    
-    MapToEcosystems --> ReturnConfig[Retornar configuración]
-    
-    class Start,ReturnConfig round
-    style Start fill:#f9f,stroke:#333
-    style ReturnConfig fill:#bbf,stroke:#333
+    style A fill:#f9f,stroke:#333
+    style H fill:#bbf,stroke:#333
 ```
 
-### Algoritmo de Detección
+### Arquitectura del Sistema de Tracking
 
-El sistema emplea un algoritmo adaptativo para la detección precisa de lenguajes:
-
-1. **Análisis de Estructura de Archivos**:
-   - Examina recursivamente todos los archivos del repositorio
-   - Mapea extensiones de archivos a lenguajes soportados por CodeQL
-   - Ignora automáticamente directorios como `.git`, `node_modules`, `vendor`, `dist`
-   - Extrae información estadística sobre la frecuencia de lenguajes
-
-2. **Análisis de Frecuencia y Relevancia**:
-   - Implementa un sistema de conteo y ponderación por tipo de archivo
-   - Establece un umbral mínimo (3+ archivos) para considerar un lenguaje como relevante
-   - Identifica el lenguaje predominante y lenguajes secundarios importantes
-   - Ordena los lenguajes detectados por relevancia
-
-3. **Generación de Configuración Inteligente**:
-   - Produce configuración única para repositorios mono-lenguaje
-   - Crea configuración multi-lenguaje adaptativa para proyectos poliglota
-   - Ajusta el formato YAML para soportar listas de lenguajes compatibles con CodeQL
-   - Implementa un fallback a JavaScript si no se detecta ningún lenguaje adecuado
-
-4. **Mapeo a Ecosistemas para Dependabot**:
-   - Traduce lenguajes detectados a sus ecosistemas de paquetes correspondientes
-   - Ejemplos de mapeos implementados:
-     - JavaScript/TypeScript → npm
-     - Python → pip
-     - Go → gomod
-     - Java/Kotlin → maven
-     - C# → nuget
-     - Ruby → bundler
-     - PHP → composer
-     - Rust → cargo
-
-### Soporte Multi-lenguaje
-
-Una de las características más avanzadas es el soporte para análisis multi-lenguaje, que permite:
-
-- Detectar automáticamente repositorios con múltiples lenguajes relevantes
-- Configurar correctamente la matriz de lenguajes de CodeQL 
-- Formatear adecuadamente la configuración YAML para incluir todos los lenguajes detectados
-- Priorizar análisis en lenguajes más prevalentes
-
-### Ventajas del Enfoque
-
-Este sistema inteligente de detección resuelve problemas comunes en la configuración de herramientas de análisis de seguridad:
-
-- **Prevención de Fallos**: Evita que CodeQL falle por intentar analizar lenguajes ausentes
-- **Optimización de Recursos**: Enfoca el análisis en los lenguajes realmente utilizados
-- **Configuración Adaptativa**: Ajusta automáticamente las configuraciones a cada repositorio
-- **Precisión Mejorada**: Reduce falsos negativos al asegurar cobertura completa
-
-## Componentes del Sistema
-
-La arquitectura del sistema se divide en componentes bien definidos y acoplados:
-
-```mermaid
-classDiagram
-    class GitHubClient {
-        +NewClient(token)
-        +SearchRepositories()
-        +ForkRepository()
-        +ListDirectoryContents()
-        +GetAuthenticatedUser()
-    }
-    
-    class LanguageDetector {
-        +detectRepositoryLanguages()
-        +mapLanguageToEcosystem()
-    }
-    
-    class TemplateProcessor {
-        +addWorkflowFromTemplate()
-        +applyReplacements()
-    }
-    
-    class GitOperator {
-        +runGitCommand()
-        +runGitCommandWithOutput()
-        +clone()
-        +checkout()
-        +commit()
-        +push()
-    }
-    
-    class CommandLineInterface {
-        +parseFlags()
-        +handleOptions()
-        +displayProgress()
-    }
-    
-    CommandLineInterface --> GitHubClient : usa
-    CommandLineInterface --> LanguageDetector : usa
-    CommandLineInterface --> TemplateProcessor : usa
-    CommandLineInterface --> GitOperator : usa
-```
-
-### Componentes Principales
-
-1. **Cliente GitHub**: 
-   - Encapsula todas las interacciones con la API de GitHub
-   - Maneja autenticación, búsqueda, forks y operaciones de contenido
-   - Implementa control de límites de tasa y reintentos
-
-2. **Detector de Lenguajes**:
-   - Implementa la lógica de análisis de archivos y detección de lenguajes
-   - Procesa estadísticas y aplica algoritmos de decisión
-   - Mapea lenguajes a sus ecosistemas correspondientes
-
-3. **Procesador de Plantillas**:
-   - Gestiona plantillas para todas las herramientas GHAS
-   - Aplica transformaciones y reemplazos contextuales
-   - Adapta las configuraciones según los lenguajes detectados
-
-4. **Operador Git**:
-   - Encapsula operaciones Git como clonación, ramas y empuje
-   - Maneja autenticación y gestión de errores
-   - Implementa estrategias para resolver conflictos
-
-5. **Interfaz de Línea de Comandos**:
-   - Proporciona API usable para usuarios finales
-   - Gestiona opciones de configuración y modo de operación
-   - Muestra feedback y progreso durante la ejecución
-
-## Buenas Prácticas y Consideraciones
-
-### Seguridad
-
-- **Autenticación**: Use un token de GitHub con los permisos mínimos necesarios
-- **Scopes recomendados**: `repo`, `workflow`, `read:org` (si analiza repos organizacionales)
-- **Almacenamiento**: Nunca almacene tokens en archivos de configuración versionados
-- **Revocación**: Rote periódicamente los tokens de acceso
-
-### Rendimiento
-
-- **Límites de API**: La herramienta respeta automáticamente los límites de tasa de GitHub
-- **Procesamiento por lotes**: Configure el parámetro `-m` para procesar repositorios en lotes
-- **Esperas**: Incluye esperas entre solicitudes para evitar bloqueos temporales
-
-### Almacenamiento
-
-- **Forks**: Los forks creados ocupan espacio en su cuenta de GitHub
-- **Limpieza**: Use `--cleanup` para eliminar forks después del análisis
-- **Archivos temporales**: Los clones locales se eliminan automáticamente al finalizar
-
-### Permisos
-
-- **Alcance de token**: Verifique que el token tenga los permisos necesarios para operaciones sobre forks
-- **Configuración de Git**: La herramienta configura automáticamente Git para usar su token
-- **Autenticación silenciosa**: No se requiere interacción manual durante las operaciones de Git
-
-## Automatización GHAS
-
-La automatización de GitHub Advanced Security es el componente principal de este proyecto, permitiendo aplicar análisis de seguridad avanzado a repositorios de forma masiva y eficiente.
-
-### Flujo de Trabajo Detallado
-
-```mermaid
-flowchart TD
-    Start[Inicio] --> TokenCheck{¿Token válido?}
-    TokenCheck -- No --> ErrorToken[Error: Token no válido]
-    TokenCheck -- Sí --> RepoSelect{¿Repo específico?}
-    
-    RepoSelect -- Sí --> ValidateRepo[Validar repositorio]
-    RepoSelect -- No --> SearchRepos[Buscar repositorios]
-    
-    ValidateRepo --> RepoValid{¿Repo válido?}
-    RepoValid -- No --> ErrorRepo[Error: Repo no encontrado]
-    RepoValid -- Sí --> CreateFork[Crear fork]
-    
-    SearchRepos --> FilterRepos[Filtrar repos con workflows]
-    FilterRepos --> SaveRepos[Guardar lista repos]
-    SaveRepos --> RepoLoop[Procesar cada repo]
-    RepoLoop --> CreateFork
-    
-    CreateFork --> Clone[Clonar fork localmente]
-    Clone --> BranchCheck{¿Existe rama GHAS?}
-    
-    BranchCheck -- Sí --> ForceUpdate{¿Forzar actualizar?}
-    ForceUpdate -- Sí --> DeleteBranch[Eliminar rama]
-    DeleteBranch --> CreateBranch[Crear rama nueva]
-    ForceUpdate -- No --> CheckoutExisting[Usar rama existente]
-    
-    BranchCheck -- No --> CreateBranch
-    
-    CheckoutExisting --> DetectLanguages[Detectar lenguajes]
-    CreateBranch --> DetectLanguages
-    
-    DetectLanguages --> ConfigGHAS[Configurar herramientas GHAS]
-    ConfigGHAS --> CommitChanges[Commit cambios]
-    CommitChanges --> PushChanges[Push a GitHub]
-    PushChanges --> CleanupCheck{¿Limpiar fork?}
-    
-    CleanupCheck -- Sí --> DeleteFork[Eliminar fork]
-    CleanupCheck -- No --> NextRepo{¿Más repos?}
-    DeleteFork --> NextRepo
-    
-    NextRepo -- Sí --> RepoLoop
-    NextRepo -- No --> Finish[Finalizar]
-    
-    class Start,Finish,ErrorToken,ErrorRepo round
-    style Start fill:#f9f,stroke:#333
-    style Finish fill:#bbf,stroke:#333
-    style ErrorToken,ErrorRepo fill:#f99,stroke:#333
-```
-
-### Proceso de Detección de Lenguajes
-
-El componente de detección inteligente de lenguajes analiza el repositorio para identificar correctamente los lenguajes de programación utilizados:
+El sistema de tracking de repositorios se implementa mediante un flujo robusto que evita procesamiento redundante:
 
 ```mermaid
 flowchart TB
-    Start([Inicio Detección]) --> ScanFiles[Escanear archivos de código]
-    ScanFiles --> MapExtensions[Mapear extensiones a lenguajes]
-    MapExtensions --> FilterDirs[Filtrar directorios no relevantes]
-    FilterDirs --> CountByLang[Contar archivos por lenguaje]
-    CountByLang --> ThresholdCheck{¿Suficientes archivos?}
+    subgraph "Sistema de Tracking de Repositorios"
     
-    ThresholdCheck -- Sí --> IdentifyPrimary[Identificar lenguaje principal]
-    ThresholdCheck -- No --> UseDefault[Usar lenguaje default]
+    Init[Inicio del Proceso] --> LoadJSON[Cargar JSON de repos procesados]
+    LoadJSON --> CheckFile{¿Archivo existe?}
+    CheckFile -->|No| CreateEmpty[Crear registro vacío]
+    CheckFile -->|Sí| ParseJSON[Parsear JSON existente]
     
-    IdentifyPrimary --> SecondaryCheck{¿Múltiples lenguajes relevantes?}
-    SecondaryCheck -- Sí --> ConfigureMulti[Configurar multi-lenguaje]
-    SecondaryCheck -- No --> ConfigureSingle[Configurar lenguaje único]
+    CreateEmpty --> ProcessLogic
+    ParseJSON --> ProcessLogic
     
-    UseDefault --> MapEcosystem[Mapear a ecosistema]
-    ConfigureMulti --> MapEcosystem
-    ConfigureSingle --> MapEcosystem
+    subgraph "ProcessLogic"
+    RepoCheck{¿Repositorio en registro?}
+    RepoCheck -->|Sí| SkipCheck{¿Omitir procesados?}
+    SkipCheck -->|Sí| SkipRepo[Omitir repositorio]
+    SkipCheck -->|No| ProcessAnyway[Procesar de todos modos]
+    RepoCheck -->|No| ProcessRepo[Procesar repo nuevo]
+    end
     
-    MapEcosystem --> ReturnResults([Retornar configuración])
+    ProcessRepo --> SaveResult[Guardar resultado]
+    ProcessAnyway --> SaveResult
+    SkipRepo --> UpdateStats[Actualizar estadísticas]
+    SaveResult --> UpdateStats
     
-    class Start,ReturnResults round
-    style Start fill:#f9f,stroke:#333
-    style ReturnResults fill:#bbf,stroke:#333
+    UpdateStats --> SaveJSON[Guardar JSON actualizado]
+    SaveJSON --> End[Fin del proceso]
+    
+    end
+    
+    class Init,End round
+    style Init fill:#f9f,stroke:#333
+    style End fill:#bbf,stroke:#333
+    style LoadJSON,ParseJSON,SaveJSON fill:#bfb,stroke:#333
+    style RepoCheck,SkipCheck fill:#ff9,stroke:#333
+    style ProcessRepo,ProcessAnyway fill:#f93,stroke:#333
+    style SkipRepo fill:#9cf,stroke:#333
 ```
 
-### Configuración de Herramientas GHAS
+### Características del Sistema de Control
 
-La herramienta configura y aplica cuatro componentes de seguridad principales:
+- **Registro JSON Persistente**: Almacena información detallada de cada repositorio procesado en `processed_repos.json`
+- **Información de Estado**: Registra para cada repositorio:
+  - Nombre completo del repositorio
+  - Timestamp de procesamiento
+  - Estado de éxito/error
+  - Mensaje descriptivo
+- **Procesamiento Inteligente**: Evita procesar repetidamente los mismos repositorios, ahorrando tiempo y recursos
+- **Control de Flujo Configurable**: Permite omitir o forzar el procesamiento de repositorios previamente procesados
+- **Informe Detallado**: Proporciona estadísticas sobre repositorios procesados y omitidos
+
+Ejemplo de la estructura JSON del sistema de tracking:
+
+```json
+{
+  "repositories": {
+    "usuario/repo1": {
+      "full_name": "usuario/repo1",
+      "processed_at": "2025-05-18T15:42:13.123456789Z",
+      "success": true,
+      "message": "Procesado correctamente"
+    },
+    "usuario/repo2": {
+      "full_name": "usuario/repo2",
+      "processed_at": "2025-05-18T15:45:22.987654321Z",
+      "success": false,
+      "message": "Error al configurar CodeQL: lenguaje no soportado"
+    }
+  }
+}
+
+### Opciones de Configuración Relacionadas
+
+| Opción | Descripción |
+|--------|-------------|
+| `--processed <archivo>` | Especifica el archivo para almacenar el registro de repositorios procesados |
+| `--skip-processed` | Omite repositorios ya procesados (habilitado por defecto) |
+| `--skip-processed=false` | Procesa todos los repositorios incluso si ya fueron procesados anteriormente |
+
+### Beneficios
+
+- **Eficiencia mejorada**: Procesa automáticamente solo repositorios nuevos o que requieren actualización
+- **Continuidad en errores**: Permite retomar el procesamiento desde el último punto en caso de interrupción
+- **Auditoría de procesos**: Facilita el seguimiento histórico de los repositorios analizados
+- **Estadísticas de procesamiento**: Proporciona métricas sobre el alcance y efectividad del análisis
+
+### Implementación Técnica
+
+La gestión de repositorios procesados se implementa mediante estructuras de datos en Go y persistencia en JSON:
 
 ```mermaid
-flowchart LR
-    Start([Inicio Config]) --> PrepDirs[Preparar directorios]
+classDiagram
+    class ProcessedRepositories {
+        +map[string]ProcessedRepository Repositories
+        +string filePath
+        +sync.RWMutex lock
+        +Load() error
+        +Save() error
+        +IsProcessed(string) bool
+        +MarkAsProcessed(string, bool, string) error
+        +GetRepositories() map[string]ProcessedRepository
+    }
     
-    PrepDirs --> CodeQL[Configurar CodeQL]
-    PrepDirs --> Dependabot[Configurar Dependabot]
-    PrepDirs --> GitLeaks[Configurar GitLeaks]
-    PrepDirs --> ContainerScan[Configurar Container Scan]
+    class ProcessedRepository {
+        +string FullName
+        +time.Time ProcessedAt
+        +bool Success
+        +string Message
+    }
     
-    CodeQL --> ApplyTemplates[Aplicar plantillas]
-    Dependabot --> ApplyTemplates
-    GitLeaks --> ApplyTemplates
-    ContainerScan --> ApplyTemplates
+    ProcessedRepositories "1" --> "*" ProcessedRepository : contains
+```
+
+El sistema utiliza un mecanismo seguro para concurrencia con mutexes que garantiza la integridad de los datos incluso al procesar múltiples repositorios en paralelo.
+
+## Optimizaciones Técnicas
+
+### Escalabilidad y Procesamiento Masivo
+
+El sistema de tracking de repositorios permite procesar grandes volúmenes de repositorios con mayor eficiencia:
+
+```mermaid
+graph TD
+    A[Inicio] --> B[Cargar registro histórico]
+    B --> C[Procesar múltiples repositorios]
+    C --> D[¿Error o interrupción?]
+    D -->|Sí| E[Reiniciar proceso]
+    D -->|No| F[Continuar con siguientes]
+    E --> G[Omitir repos completados]
+    F --> G
+    G --> H[Actualizar registro]
+    H --> I[Finalizar]
     
-    ApplyTemplates --> Commit[Commit cambios]
+    style A fill:#f9f,stroke:#333
+    style I fill:#bbf,stroke:#333
+    style B,H fill:#ff9,stroke:#333
+    style G fill:#bfb,stroke:#333
+    style D fill:#ff9,stroke:#333
+```
+
+Esta implementación permite:
+- **Procesamiento Incremental**: Continuar desde el punto de interrupción en caso de fallos
+- **Procesamiento por Lotes**: Dividir grandes conjuntos de repositorios en sesiones manejables
+- **Recuperación Inteligente**: Recuperarse de errores sin perder el trabajo ya realizado
+- **Optimización de Recursos**: Evitar repetir análisis de repositorios ya procesados correctamente
+
+### Resolución de Colisiones de Directorios y Manejo de Git
+
+La herramienta incorpora mejoras críticas para la robustez en entornos de producción:
+
+```mermaid
+flowchart TB
+    subgraph "Resolución Colisiones y Errores Git"
+    
+    Start[Inicio Procesamiento] --> UniqueDir[Crear directorio con timestamp]
+    
+    UniqueDir --> FormatDir["nombreRepo_YYYYMMDD_HHMMSS"]
+    FormatDir --> Clone[Clonar en directorio único]
+    
+    Clone --> ConfigChanges[Generar configuraciones GHAS]
+    ConfigChanges --> GitCheck{¿Hay cambios?}
+    
+    GitCheck -->|No| SkipCommit[Omitir commit y push]
+    GitCheck -->|Sí| StageFiles[Stage archivos]
+    StageFiles --> Commit[Crear commit]
     Commit --> Push[Push a GitHub]
-    Push --> Finish([Finalizar Config])
     
-    class Start,Finish round
+    SkipCommit --> RecordStatus[Registrar estado del repo]
+    Push --> RecordStatus
+    
+    end
+    
     style Start fill:#f9f,stroke:#333
-    style Finish fill:#bbf,stroke:#333
+    style UniqueDir,FormatDir fill:#bfb,stroke:#333
+    style GitCheck fill:#ff9,stroke:#333
+    style SkipCommit fill:#9cf,stroke:#333
 ```
 
-### Gestión de Forks y Ramas
-
-El sistema implementa una gestión inteligente de forks y ramas:
-
-1. **Verificación de existencia**: Comprueba si ya existe un fork del repositorio en la cuenta del usuario
-2. **Gestión de actualizaciones**:
-   - Detecta si existe la rama `ghas-analysis` en el fork
-   - Permite forzar la actualización con la opción `--force`
-   - Maneja conflictos con resolución automática
-3. **Autenticación adecuada**:
-   - Utiliza el token de GitHub para todas las operaciones
-   - Configura Git correctamente para operaciones autenticadas
-4. **Limpieza opcional**:
-   - Permite eliminar forks después del análisis con `--cleanup`
-
-### Ejemplos de Resultados
-
-Una vez completado el proceso, los resultados del análisis estarán disponibles en la pestaña "Security" del repositorio fork, donde podrá visualizar:
-
-1. **Vulnerabilidades de CodeQL**: Problemas detectados en el código fuente
-2. **Alertas de Dependabot**: Dependencias con vulnerabilidades conocidas
-3. **Secretos detectados**: Posibles credenciales o tokens expuestos
-4. **Vulnerabilidades en contenedores**: Problemas en imágenes Docker
-
-## Solución de Problemas
-
-### Problemas Comunes y Soluciones
-
-```mermaid
-flowchart TD
-    Problem[Problema Identificado] --> AuthIssue{¿Problema de autenticación?}
-    AuthIssue -- Sí --> TokenCheck[Verificar token y permisos]
-    AuthIssue -- No --> LangIssue{¿Problema de detección de lenguajes?}
-    
-    TokenCheck --> TokenFix[Generar nuevo token con permisos adecuados]
-    
-    LangIssue -- Sí --> ForceFlag[Usar opción --force]
-    LangIssue -- No --> GitIssue{¿Problema con operaciones Git?}
-    
-    GitIssue -- Sí --> GitConfig[Verificar configuración Git]
-    GitIssue -- No --> APIIssue{¿Problema con API?}
-    
-    GitConfig --> GitAuthFix[Verificar autenticación Git]
-    
-    APIIssue -- Sí --> RateLimit[Verificar límites de tasa]
-    APIIssue -- No --> OtherIssues[Otros problemas]
-    
-    RateLimit --> WaitSolution[Esperar y reintentar]
-    
-    class Problem,TokenFix,ForceFlag,GitAuthFix,WaitSolution,OtherIssues round
-    style Problem fill:#f99,stroke:#333
-    style TokenFix,ForceFlag,GitAuthFix,WaitSolution fill:#9f9,stroke:#333
-```
-
-#### Errores de Autenticación
-
-| Problema | Solución |
-|----------|----------|
-| Token de GitHub no encontrado | Verificar variable `GITHUB_PAT` en entorno o archivo `.env` |
-| Error de autenticación | Comprobar validez del token y que tenga permisos `repo` y `workflow` |
-| No se puede crear fork | Verificar si ya existe el fork o si el token tiene permisos adecuados |
-
-#### Problemas de Detección de Lenguajes
-
-| Problema | Solución |
-|----------|----------|
-| Lenguaje incorrecto detectado | Usar `--force` para forzar nueva detección |
-| CodeQL falla por lenguaje | Verificar que el lenguaje configurado corresponde al contenido del repositorio |
-| No se detecta ningún lenguaje | El repositorio podría no tener archivos de código reconocibles |
-
-#### Problemas con Git
-
-| Problema | Solución |
-|----------|----------|
-| Error al clonar repositorio | Verificar conectividad y acceso al repositorio |
-| Error al enviar cambios | Usar `--force` para sobrescribir cambios en rama existente |
-| Conflictos en rama | Eliminar rama existente y crear nueva con `--force` |
-
-#### Límites de API
-
-| Problema | Solución |
-|----------|----------|
-| Límite de tasa excedido | Esperar y reintentar según cabeceras de límite de GitHub |
-| Respuesta lenta de API | Reducir número de repositorios procesados con `-m` |
-| Error 404 en repositorio | Verificar existencia y accesibilidad del repositorio |
-
-## Estructura del Proyecto
-
-```mermaid
-graph LR
-    Main[ghasfullflow] --> Github[pkg/github]
-    Main --> Models[pkg/models]
-    Main --> Templates[internal/templates]
-    
-    Github --> Collector[Collector]
-    Github --> Client[API Client]
-    
-    Models --> Repository[Repository Model]
-    Models --> Command[Command Executor]
-    
-    Templates --> CodeQL[CodeQL Template]
-    Templates --> Dependabot[Dependabot Template]
-    Templates --> GitLeaks[GitLeaks Template]
-    Templates --> Container[Container Scan Template]
-    
-    style Main fill:#f9f,stroke:#333
-    style Github,Models,Templates fill:#bbf,stroke:#333
-    style Collector,Client,Repository,Command fill:#dfd,stroke:#333
-    style CodeQL,Dependabot,GitLeaks,Container fill:#ffd,stroke:#333
-```
-
-### Principales Archivos y Directorios
-
-- **`/cmd/ghasfullflow/main.go`**: Punto de entrada principal con lógica del flujo completo
-- **`/pkg/github/client.go`**: Cliente para interactuar con la API de GitHub
-- **`/pkg/models/repository.go`**: Modelos de datos y estructuras para manipular repositorios
-- **`/internal/templates/`**: Plantillas para configuraciones de herramientas de seguridad
-- **`/ghas-full-flow.sh`**: Script shell para facilitar la ejecución del flujo completo
-
-### Scripts de Utilidad
-
-- **`test-single-repo.sh`**: Permite probar la automatización en un único repositorio
-- **`setup.sh`**: Configura el entorno y estructura de directorios necesarios
-- **`check_structure.sh`**: Verifica que la estructura del proyecto sea correcta
+Esta implementación resuelve dos problemas críticos:
+1. **Colisión de directorios**: Usando nombres únicos con timestamps para cada operación de clonado
+2. **Errores de Git**: Verificando la existencia de cambios antes de intentar commits

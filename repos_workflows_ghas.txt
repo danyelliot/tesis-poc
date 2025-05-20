@@ -1,0 +1,2 @@
+microsoft/setup-msbuild: .github/workflows/test.yml
+microsoft/setup-msbuild: .github/workflows/test.yml
