@@ -1,0 +1,24 @@
+name: CodeQL
+
+on: 
+  push: 
+    branches: [main]
+  pull_request: 
+    brances: [main]
+
+jobs: 
+  analyse:
+    name: Analyse 
+    runs-on: ubuntu-lastest
+    permissions:
+      actions: read
+      contects : read
+      security-events: write
+
+      steps: 
+      - uses: actions/checkout@v3
+      - uses: github/codeql-action/init@v2
+        with:
+          language: go
+      - uses: github/codeql-action/analyse@v2
+    
